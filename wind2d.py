@@ -61,6 +61,9 @@ class MainWindow(QMainWindow):
         umbstr = parsed_args.umbilicus
         decimation = parsed_args.decimation
         self.viewer.decimation = decimation
+        self.viewer.overlay_colormap = parsed_args.colormap
+        self.viewer.overlay_interpolation = parsed_args.interpolation
+        maxrad = parsed_args.maxrad
 
         if nrrd_dir is None:
             nrrd_dir = tifname.parent
@@ -86,6 +89,10 @@ class MainWindow(QMainWindow):
                 print("Could not parse --umbilicus argument")
             else:
                 self.viewer.umb = np.array((float(words[0]),float(words[1])))
+        umb = self.viewer.umb
+        if maxrad is None:
+            maxrad = np.sqrt((umb*umb).sum())
+        self.viewer.maxrad = maxrad
 
         if no_cache:
             print("computing structural tensors")
@@ -144,6 +151,9 @@ class ImageViewer(QLabel):
         self.overlay_data = None
         self.sparse_u_cross_grad = None
         self.decimation = 1
+        self.overlay_colormap = "viridis"
+        self.overlay_interpolation = "linear"
+        self.maxrad = None
 
     def mousePressEvent(self, e):
         if self.image is None:
@@ -196,6 +206,25 @@ class ImageViewer(QLabel):
         z *= 1.001**d
         self.setZoom(z)
         self.drawAll()
+
+    colormaps = {
+            "gray": "matlab:gray",
+            "viridis": "bids:viridis",
+            "bwr": "matplotlib:bwr",
+            "cool": "matlab:cool",
+            "bmr_3c": "chrisluts:bmr_3c",
+            "rainbow": "gnuplot:rainbow",
+            "spec11": "colorbrewer:Spectral_11",
+            "set12": "colorbrewer:Set3_12",
+            }
+
+    @staticmethod
+    def nextColormapName(cur):
+        cms = ImageViewer.colormaps
+        keys = list(cms.keys())
+        index = keys.index(cur)
+        index = (index+1) % len(keys)
+        return keys[index]
 
     def keyPressEvent(self, e):
         '''
@@ -259,16 +288,36 @@ class ImageViewer(QLabel):
             # self.iterateWinding()
             self.solveWindingOneStep()
             self.drawAll()
+        elif e.key() == Qt.Key_C:
+            self.overlay_colormap = self.nextColormapName(self.overlay_colormap)
+            self.drawAll()
+        elif e.key() == Qt.Key_I:
+            if self.overlay_interpolation == "linear":
+                self.overlay_interpolation = "nearest"
+            else:
+                self.overlay_interpolation = "linear"
+            self.drawAll()
+        elif e.key() == Qt.Key_R:
+            delta = 100
+            if e.modifiers() & Qt.ShiftModifier:
+                # print("Cap R")
+                self.maxrad += delta
+            elif self.maxrad > delta:
+                self.maxrad -= delta
+                #print("r")
+            self.drawAll()
         elif e.key() == Qt.Key_U:
             wxy = self.mouseXy()
             ixy = self.wxyToIxy(wxy)
             print("umb at",ixy)
             self.umb = np.array(ixy)
             self.drawAll()
-
         elif e.key() == Qt.Key_V:
             self.dip_bars_visible = not self.dip_bars_visible
             self.drawAll()
+        elif e.key() == Qt.Key_Q:
+            print("Exiting")
+            exit()
 
     def getST(self):
         return self.main_window.st
@@ -601,7 +650,7 @@ class ImageViewer(QLabel):
         # c = st.coherence[:-1,:-1]
         # rows, cols = np.mgrid[:basew.shape[0]-1, :basew.shape[1]-1]
 
-        if self.sparse_u_cross_grad is None:
+        if True or self.sparse_u_cross_grad is None:
             vecu = st.vector_u
             coh = st.coherence[:,:,np.newaxis]
             wvecu = coh*vecu
@@ -642,10 +691,10 @@ class ImageViewer(QLabel):
         out = x.reshape(basew.shape)
         out += basew
         print("out", out.shape, out.min(), out.max())
-        maxrad = np.sqrt((self.umb*self.umb).sum())
-        print("maxrad", maxrad)
-        maxrad = 1500
-        out = out/maxrad
+        # maxrad = np.sqrt((self.umb*self.umb).sum())
+        # print("maxrad", maxrad)
+        # maxrad = 1500
+        # out = out/maxrad
         if decimation > 1:
             out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_AREA)
         return out
@@ -692,16 +741,13 @@ class ImageViewer(QLabel):
         smoothing = .01
         # smoothing = 0.
         nextw = self.solveWindingLinear(rad, smoothing)
+        # maxrad = np.sqrt((self.umb*self.umb).sum())
+        # print("maxrad", maxrad)
+        # maxrad = 1500
+        # maxrad = 1000
+        # nextw = nextw/self.maxrad
+        # self.overlay_data = nextw/self.maxrad
         self.overlay_data = nextw
-
-    colormaps = {
-            "gray": "matlab:gray",
-            "viridis": "bids:viridis",
-            "bwr": "matplotlib:bwr",
-            "cool": "matlab:cool",
-            "bmr_3c": "chrisluts:bmr_3c",
-            "rainbow": "gnuplot:rainbow",
-            }
 
     # input: 2D float array, range 0.0 to 1.0
     # output: RGB array, uint8, with colors determined by the
@@ -770,19 +816,29 @@ class ImageViewer(QLabel):
         outrgb = self.dataToZoomedRGB(self.image, alpha=main_alpha)
         st = self.main_window.st
         other_data = None
+        '''
         if st is not None:
             other_data = st.coherence
             # print(other_data.shape, other_data.min(), other_data.max())
-        other_data = self.overlay_data
+        '''
+        if self.maxrad is None:
+            other_data = self.overlay_data
+        elif self.overlay_data is not None:
+            other_data = self.overlay_data / self.maxrad
+            # print("maxrad", self.maxrad)
         if other_data is not None:
+            '''
             colormap = "viridis"
             colormap = "bmr_3c"
             colormap = "bwr"
+            interpolation = "linear"
             colormap = "colorbrewer:Spectral_11"
             colormap = "colorbrewer:Set3_12"
+            interpolation = "nearest"
+            '''
             # watch out for the sqrt!
             # outrgb += self.dataToZoomedRGB(np.sqrt(other_data), alpha=total_alpha-main_alpha, colormap=colormap, interpolation="nearest")
-            outrgb += self.dataToZoomedRGB(other_data, alpha=total_alpha-main_alpha, colormap=colormap, interpolation="linear")
+            outrgb += self.dataToZoomedRGB(other_data, alpha=total_alpha-main_alpha, colormap=self.overlay_colormap, interpolation=self.overlay_interpolation)
 
         ww = self.width()
         wh = self.height()
@@ -909,18 +965,32 @@ def process_cl_args():
     parser.add_argument("--umbilicus",
                         default=None,
                         help="umbilicus location in x,y, for example 3960,2280")
+    parser.add_argument("--colormap",
+                        default="viridis",
+                        help="colormap")
+    parser.add_argument("--interpolation",
+                        default="linear",
+                        help="interpolation, either linear or nearest")
+    parser.add_argument("--maxrad",
+                        type=float,
+                        default=None,
+                        help="max expected radius, in pixels (if not given, will be calculated from umbilicus position)")
     parser.add_argument("--decimation",
                         type=int,
                         default=1,
                         help="decimation factor (default is no decimation)")
 
-    parsed_args, unparsed_args = parser.parse_known_args()
-    return parsed_args, unparsed_args
+    # parsed_args, unparsed_args = parser.parse_known_args()
+    # return parsed_args, unparsed_args
+    parsed_args = parser.parse_args()
+    return parsed_args
 
 
 if __name__ == '__main__':
-    parsed_args, unparsed_args = process_cl_args()
-    qt_args = sys.argv[:1] + unparsed_args
+    # parsed_args, unparsed_args = process_cl_args()
+    parsed_args = process_cl_args()
+    # qt_args = sys.argv[:1] + unparsed_args
+    qt_args = sys.argv[:1] 
     app = QApplication(qt_args)
 
     tinter = Tinter(app, parsed_args)
