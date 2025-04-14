@@ -31,7 +31,6 @@ from PyQt5.QtGui import (
 import cv2
 import numpy as np
 import cmap
-# from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.integrate import solve_ivp
 import nrrd
@@ -625,208 +624,10 @@ class ImageViewer(QLabel):
         return sparse_grad.tocsc(), sparse_all.tocsc()
 
 
-
-    """
-    @staticmethod
-    def sparseUCrossGradAllOld(weighted_u_vector, smoothing_weight, umb):
-        # img = self.image
-        # st = self.main_window.st
-        # uvecf = st.vector_u
-        uvecf = weighted_u_vector
-        # full number of rows, columns of image;
-        # it is assumed that the image and st.vector_u
-        # are the same size.
-        # nrf, ncf = img.shape
-        nrf, ncf = uvecf.shape[:2]
-        nr = nrf-1
-        nc = ncf-1
-        n1df_flat = np.arange(nrf*ncf)
-        # nrf x ncf array where each element is a number
-        # representing the element's position in the array
-        n1df = np.reshape(n1df_flat, uvecf.shape[:2])
-        # n1d is like n1df but shrunk by 1 in row and column directions
-        n1d = n1df[:nr, :nc]
-        # n1dfr is full in the row direction, but shrunk by 1 in column dir
-        n1dfr = n1df[:, :nc]
-        # n1dfc is full in the column direction, but shrunk by 1 in row dir
-        n1dfc = n1df[:nr, :]
-
-        umbpt = n1df[int(umb[1]), int(umb[0])]
-        print("umbpt", umbpt)
-        # flat array (size nrf-1 times ncf-1) where each element
-        # contains a position in the original nrf by ncf array. 
-        n1d_flat = n1d.flatten()
-        n1dfr_flat = n1dfr.flatten()
-        n1dfc_flat = n1dfc.flatten()
-
-        # diag3 = np.stack((n1d_flat, n1d_flat, np.zeros(n1d_flat.shape)), axis=1).astype(np.float32)
-        # float32 is not precise enough for carrying indices of large
-        # flat matrices!
-        diag3 = np.stack((n1d_flat, n1d_flat, np.zeros(n1d_flat.shape)), axis=1)
-        diag3fr = np.stack((n1dfr_flat, n1dfr_flat, np.zeros(n1dfr_flat.shape)), axis=1)
-        diag3fc = np.stack((n1dfc_flat, n1dfc_flat, np.zeros(n1dfc_flat.shape)), axis=1)
-        print("diag3", diag3.shape, diag3.dtype)
-        # print(diag3[0:10], diag3[997:1010])
-
-        # clean up memory
-        n1df_flat = None
-        n1dfr_flat = None
-        n1dfc_flat = None
-        n1df = None
-        n1d_flat = None
-        n1dfr_flat = None
-        n1dfc_flat = None
-        n1d = None
-
-        dx0g = diag3fr.copy()
-        dx0g[:,2] = -1.
-
-        dx1g = diag3fr.copy()
-        dx1g[:,1] += 1
-        dx1g[:,2] = 1.
-
-        ddxg = np.concatenate((dx0g, dx1g), axis=0)
-        # print("ddx", ddx.shape, ddx.dtype)
-
-        # clean up memory
-        dx0g = None
-        dx1g = None
-
-        dy0g = diag3fc.copy()
-        dy0g[:,2] = -1.
-
-        dy1g = diag3fc.copy()
-        dy1g[:,1] += ncf
-        dy1g[:,2] = 1.
-
-        ddyg = np.concatenate((dy0g, dy1g), axis=0)
-
-        # clean up memory
-        dy0g = None
-        dy1g = None
-
-        ddxg[:,0] *= 2
-        ddyg[:,0] *= 2
-        ddyg[:,0] += 1
-
-        grad = np.concatenate((ddxg, ddyg), axis=0)
-        print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
-        sparse_grad = sparse.coo_array((grad[:,2], (grad[:,0], grad[:,1])), shape=(2*nrf*ncf, nrf*ncf))
-
-
-        uvec_flat = uvecf[:nr, :nc].reshape(-1, 2)
-        print("uvec_flat", uvec_flat.shape)
-
-        dx0 = diag3.copy()
-        dx0[:,2] = -uvec_flat[:,1]
-        # dx0[:,2] = 1
-
-        dx1 = diag3.copy()
-        dx1[:,1] += 1
-        dx1[:,2] = uvec_flat[:,1]
-        # dx1[:,2] = -1
-
-        ddx = np.concatenate((dx0, dx1), axis=0)
-        print("ddx", ddx.shape, ddx.dtype)
-
-        # clean up memory
-        dx0 = None
-        dx1 = None
-
-        '''
-        dx0[:,2] = -1
-        dx1[:,2] = 1
-        ddxg = np.concatenate((dx0, dx1), axis=0)
-        '''
-
-        '''
-        # clean up memory
-        dx0 = None
-        dx1 = None
-        '''
-
-        dy0 = diag3.copy()
-        dy0[:,2] = uvec_flat[:,0]
-        # dy0[:,2] = -1
-
-        dy1 = diag3.copy()
-        dy1[:,1] += ncf
-        dy1[:,2] = -uvec_flat[:,0]
-        # dy1[:,2] = 1
-
-        ddy = np.concatenate((dy0, dy1), axis=0)
-        print("ddy", ddy.shape, ddy.dtype)
-
-        '''
-        dy0[:,2] = -1
-        dy1[:,2] = 1
-        ddyg = np.concatenate((dy0, dy1), axis=0)
-        '''
-
-        # clean up memory
-        dy0 = None
-        dy1 = None
-
-        '''
-        ddxg[:,0] *= 2
-        ddyg[:,0] *= 2
-        ddyg[:,0] += 1
-
-        grad = np.concatenate((ddxg, ddyg), axis=0)
-        print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
-        sparse_grad = sparse.coo_array((grad[:,2], (grad[:,0], grad[:,1])), shape=(2*nrf*ncf, nrf*ncf))
-        '''
-
-        # sparse_grad seems to carry views of the grad array, so
-        # subsequent changes to grad will propagate back into
-        # sparse_grad.  We don't want this, so make a copy to work on
-        grad = grad.copy()
-        grad[:,0] += ncf*nrf
-        print("ddx,ddy,grad", ddx.max(axis=0), ddy.max(axis=0), grad.min(axis=0), grad.max(axis=0))
-        grad[:,2] *= smoothing_weight
-
-        umbzero = np.array([[3*ncf*nrf, umbpt, 1.]])
-
-        uxg = np.concatenate((ddx, ddy, grad, umbzero), axis=0)
-        print("uxg", uxg.shape, uxg.dtype, uxg[:,0].max(), uxg[:,1].max())
-        ddx = None
-        ddy = None
-        grad = None
-        sparse_uxg = sparse.coo_array((uxg[:,2], (uxg[:,0], uxg[:,1])), shape=(3*nrf*ncf+1, nrf*ncf))
-        uxg = None
-        return sparse_grad.tocsc(), sparse_uxg.tocsc()
-    """
-
     def solveWindingLinear(self, basew, smoothing_weight):
-        '''
-        dwdx = np.diff(basew, axis=1)[:-1,:]
-        dwdy = np.diff(basew, axis=0)[:,:-1]
-        print(dwdx.shape, dwdy.shape)
-        dxylen = np.sqrt(dwdx*dwdx+dwdy*dwdy)
-        print("dxylen", dxylen.min(), dxylen.max())
-        dxylen[dxylen==0] = .001
-        dwdx /= dxylen
-        dwdy /= dxylen
-        dwd = np.stack((dwdx,dwdy), axis=2)
-        print(dwd.shape)
-        # return .5*(dwdy+1.0)
-        st = self.main_window.st
-        stnorm = st.vector_u[:-1,:-1]
-        coh = st.coherence[:-1,:-1]
-        cross = np.cross(stnorm, dwd)
-        # return .5*(coh*cross+1)
-        # out = .5*(cross+1)
-        out = .5*(coh*cross+1)
-        #print(out.max(), out.min(), out[1,1])
-        return out
-        '''
-
         st = self.main_window.st
         decimation = self.decimation
         print("decimation", decimation)
-        # u = st.vector_u[:-1,:-1]
-        # c = st.coherence[:-1,:-1]
-        # rows, cols = np.mgrid[:basew.shape[0]-1, :basew.shape[1]-1]
 
         if True or self.sparse_u_cross_grad is None:
             vecu = st.vector_u
@@ -843,9 +644,6 @@ class ImageViewer(QLabel):
 
         A = self.sparse_u_cross_grad
         print("A", A.shape, A.dtype)
-        # nn = 120
-        # a = A[nn*250+100:nn*250+102]
-        # print("a", a.shape, a.dtype, a[a!=0], np.argwhere(a))
 
         b = -self.sparse_u_cross_grad @ basew.flatten()
         b[basew.size:] = 0.
@@ -853,11 +651,9 @@ class ImageViewer(QLabel):
         At = A.transpose()
         AtA = At @ A
         print("AtA", AtA.shape, sparse.issparse(AtA))
-        # ata = AtA[110*250+100:110*250+104]
         # print("ata", ata.shape, ata.dtype, ata[ata!=0], np.argwhere(ata))
         ssum = AtA.sum(axis=0)
         print("ssum", np.argwhere(np.abs(ssum)>1.e-10))
-        # print(ssum[:10])
         asum = np.abs(AtA).sum(axis=0)
         print("asum", np.argwhere(asum==0))
         Atb = At @ b
@@ -869,46 +665,15 @@ class ImageViewer(QLabel):
         out = x.reshape(basew.shape)
         out += basew
         print("out", out.shape, out.min(), out.max())
-        # maxrad = np.sqrt((self.umb*self.umb).sum())
-        # print("maxrad", maxrad)
-        # maxrad = 1500
-        # out = out/maxrad
         if decimation > 1:
             out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_AREA)
         return out
-
-        '''
-        uxgbf = (self.sparse_u_cross_grad @ basew.flatten())[:basew.size]
-        print("uxgbf", uxgbf.shape, sparse.issparse(uxgbf), uxgbf.min(), uxgbf.max())
-        uxgb = uxgbf.reshape(basew.shape)
-        # print(uxgb[450,495:500])
-        gbf = self.sparse_grad @ basew.flatten()
-        gb = gbf.reshape((basew.shape[0], basew.shape[1], 2))
-        gblen = np.sqrt(gb[:,:,0]*gb[:,:,0]+gb[:,:,1]*gb[:,:,1])
-        print("gblen", gblen.min(), gblen.max())
-        gblen[gblen==0] = .001
-        # coh = st.coherence
-        uxgbn = uxgb/gblen
-        print("uxgbn", uxgbn.min(), uxgbn.max())
-        # out = .5*(coh*uxgbn+1)
-        out = .5*(uxgbn+1)
-        if decimation > 1:
-            # zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_AREA)
-            out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_AREA)
-        return out
-        '''
 
     def solveWindingOneStep(self):
         im = self.image
         if im is None:
             return
         umb = self.umb
-        # startw = np.zeros(im.shape, np.float64)
-        # basew = np.zeros(im.shape, np.float64)
-        # ogrid is an open grid, but it turns out to work
-        # in the code below because of broadcasting.
-        # Better to be explicit by using mgrid, however.
-        # iys, ixs = np.ogrid[:im.shape[0], :im.shape[1]]
         iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
         print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
@@ -919,12 +684,6 @@ class ImageViewer(QLabel):
         smoothing_weight = .01
         # smoothing = 0.
         nextw = self.solveWindingLinear(rad, smoothing_weight)
-        # maxrad = np.sqrt((self.umb*self.umb).sum())
-        # print("maxrad", maxrad)
-        # maxrad = 1500
-        # maxrad = 1000
-        # nextw = nextw/self.maxrad
-        # self.overlay_data = nextw/self.maxrad
         self.overlay_data = nextw
 
     # input: 2D float array, range 0.0 to 1.0
@@ -973,14 +732,8 @@ class ImageViewer(QLabel):
             y1s = int((y1-ay1)/z)
             x2s = int((x2-ax1)/z)
             y2s = int((y2-ay1)/z)
-            # print(sw,sh,ww,wh)
-            # print(x1,y1,x2,y2)
-            # print(x1s,y1s,x2s,y2s)
             zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_AREA)
             cslc = cm(zslc)
-            # print("cslc", colormap, cslc[0,0], zslc[0,0])
-            # print(zslc.min(), zslc.max())
-            # print(cslc.shape, cslc.dtype, cslc.min(), cslc.max())
             outrgb[y1:y2, x1:x2, :] = (255*cslc[:,:,:3]*alpha).astype(np.uint8)
         return outrgb
 
@@ -994,28 +747,12 @@ class ImageViewer(QLabel):
         outrgb = self.dataToZoomedRGB(self.image, alpha=main_alpha)
         st = self.main_window.st
         other_data = None
-        '''
-        if st is not None:
-            other_data = st.coherence
-            # print(other_data.shape, other_data.min(), other_data.max())
-        '''
         if self.maxrad is None:
             other_data = self.overlay_data
         elif self.overlay_data is not None:
             other_data = self.overlay_data / self.maxrad
             # print("maxrad", self.maxrad)
         if other_data is not None:
-            '''
-            colormap = "viridis"
-            colormap = "bmr_3c"
-            colormap = "bwr"
-            interpolation = "linear"
-            colormap = "colorbrewer:Spectral_11"
-            colormap = "colorbrewer:Set3_12"
-            interpolation = "nearest"
-            '''
-            # watch out for the sqrt!
-            # outrgb += self.dataToZoomedRGB(np.sqrt(other_data), alpha=total_alpha-main_alpha, colormap=colormap, interpolation="nearest")
             outrgb += self.dataToZoomedRGB(other_data, alpha=total_alpha-main_alpha, colormap=self.overlay_colormap, interpolation=self.overlay_interpolation)
 
         ww = self.width()
@@ -1158,6 +895,9 @@ def process_cl_args():
                         default=1,
                         help="decimation factor (default is no decimation)")
 
+    # I decided not to use parse_known_args because
+    # I prefer to get an error message if an argument
+    # is unrecognized
     # parsed_args, unparsed_args = parser.parse_known_args()
     # return parsed_args, unparsed_args
     parsed_args = parser.parse_args()
