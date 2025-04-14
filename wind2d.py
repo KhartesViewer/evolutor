@@ -216,6 +216,7 @@ class ImageViewer(QLabel):
             "rainbow": "gnuplot:rainbow",
             "spec11": "colorbrewer:Spectral_11",
             "set12": "colorbrewer:Set3_12",
+            "tab20": "seaborn:tab20",
             }
 
     @staticmethod
@@ -450,8 +451,184 @@ class ImageViewer(QLabel):
         self.umb = np.array((image.shape[1]/2, image.shape[0]/2))
         self.drawAll()
 
+    # set is_cross True if op is cross product, False if
+    # op is dot product
     @staticmethod
-    def sparseUCrossGrad(weighted_u_vector, smoothing, umb):
+    def sparseVecOpGrad(vec2d, is_cross):
+        # full number of rows, columns of image;
+        # it is assumed that the image and vec2d
+        # are the same size, except each vec2d element
+        # has 2 components.
+        nrf, ncf = vec2d.shape[:2]
+        nr = nrf-1
+        nc = ncf-1
+        n1df_flat = np.arange(nrf*ncf)
+        # nrf x ncf array where each element is a number
+        # representing the element's position in the array
+        n1df = np.reshape(n1df_flat, vec2d.shape[:2])
+        # No immediate effect, since n1df is a view of n1df_flat
+        n1df_flat = None
+        # n1d is like n1df but shrunk by 1 in row and column directions
+        n1d = n1df[:nr, :nc]
+        # No immediate effect, since n1d is a view of n1df
+        n1df = None
+        # flat array (size nrf-1 times ncf-1) where each element
+        # contains a position in the original nrf by ncf array. 
+        n1d_flat = n1d.flatten()
+        # No immediate effect, since n1d_flat is a view of n1d
+        n1d = None
+        # diag3 is the diagonal matrix of n1d_flat, in 3-column sparse format.
+        # float32 is not precise enough for carrying indices of large
+        # flat matrices, so use default (float64)
+        diag3 = np.stack((n1d_flat, n1d_flat, np.zeros(n1d_flat.shape)), axis=1)
+        print("diag3", diag3.shape, diag3.dtype)
+        # clean up memory
+        n1d_flat = None
+
+        vec2d_flat = vec2d[:nr, :nc].reshape(-1, 2)
+        print("vec2d_flat", vec2d_flat.shape)
+
+        dx0 = diag3.copy()
+
+        dx1 = diag3.copy()
+        dx1[:,1] += 1
+        # TODO: index depends on operator!
+        if is_cross:
+            dx0[:,2] = -vec2d_flat[:,1]
+            dx1[:,2] = vec2d_flat[:,1]
+        else:
+            dx0[:,2] = -vec2d_flat[:,0]
+            dx1[:,2] = vec2d_flat[:,0]
+
+        ddx = np.concatenate((dx0, dx1), axis=0)
+        print("ddx", ddx.shape, ddx.dtype)
+
+        # clean up memory
+        dx0 = None
+        dx1 = None
+
+        dy0 = diag3.copy()
+
+        dy1 = diag3.copy()
+        dy1[:,1] += ncf
+        if is_cross:
+            dy0[:,2] = vec2d_flat[:,0]
+            dy1[:,2] = -vec2d_flat[:,0]
+        else:
+            dy0[:,2] = -vec2d_flat[:,1]
+            dy1[:,2] = vec2d_flat[:,1]
+
+        ddy = np.concatenate((dy0, dy1), axis=0)
+        print("ddy", ddy.shape, ddy.dtype)
+
+        # clean up memory
+        dy0 = None
+        dy1 = None
+
+        print("ddx,ddy", ddx.max(axis=0), ddy.max(axis=0))
+
+        uxg = np.concatenate((ddx, ddy), axis=0)
+        print("uxg", uxg.shape, uxg.dtype, uxg[:,0].max(), uxg[:,1].max())
+        ddx = None
+        ddy = None
+        sparse_uxg = sparse.coo_array((uxg[:,2], (uxg[:,0], uxg[:,1])), shape=(nrf*ncf, nrf*ncf))
+        return sparse_uxg
+
+    @staticmethod
+    def sparseGrad(shape):
+        # full number of rows, columns of image
+        nrf, ncf = shape
+        nr = nrf-1
+        nc = ncf-1
+        n1df_flat = np.arange(nrf*ncf)
+        # nrf x ncf array where each element is a number
+        # representing the element's position in the array
+        n1df = np.reshape(n1df_flat, shape)
+        n1df_flat = None
+
+        # n1dfr is full in the row direction, but shrunk by 1 in column dir
+        n1dfr = n1df[:, :nc]
+        # n1dfc is full in the column direction, but shrunk by 1 in row dir
+        n1dfc = n1df[:nr, :]
+        n1df = None
+        n1dfr_flat = n1dfr.flatten()
+        n1dfr = None
+        n1dfc_flat = n1dfc.flatten()
+        n1dfc = None
+
+        # float32 is not precise enough for carrying indices of large
+        # flat matrices, so use default (float64)
+        diag3fr = np.stack((n1dfr_flat, n1dfr_flat, np.zeros(n1dfr_flat.shape)), axis=1)
+        n1dfr_flat = None
+        diag3fc = np.stack((n1dfc_flat, n1dfc_flat, np.zeros(n1dfc_flat.shape)), axis=1)
+        n1dfc_flat = None
+
+        dx0g = diag3fr.copy()
+        dx0g[:,2] = -1.
+
+        dx1g = diag3fr.copy()
+        dx1g[:,1] += 1
+        dx1g[:,2] = 1.
+
+        ddxg = np.concatenate((dx0g, dx1g), axis=0)
+        # print("ddx", ddx.shape, ddx.dtype)
+
+        # clean up memory
+        diag3fr = None
+        dx0g = None
+        dx1g = None
+
+        dy0g = diag3fc.copy()
+        dy0g[:,2] = -1.
+
+        dy1g = diag3fc.copy()
+        dy1g[:,1] += ncf
+        dy1g[:,2] = 1.
+
+        ddyg = np.concatenate((dy0g, dy1g), axis=0)
+
+        # clean up memory
+        diag3fc = None
+        dy0g = None
+        dy1g = None
+
+        ddxg[:,0] *= 2
+        ddyg[:,0] *= 2
+        ddyg[:,0] += 1
+
+        grad = np.concatenate((ddxg, ddyg), axis=0)
+        print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
+        sparse_grad = sparse.coo_array((grad[:,2], (grad[:,0], grad[:,1])), shape=(2*nrf*ncf, nrf*ncf))
+        return sparse_grad
+
+    @staticmethod
+    def sparseUmbilical(shape, umb):
+        nrf, ncf = shape
+        nr = nrf-1
+        nc = ncf-1
+        n1df_flat = np.arange(nrf*ncf)
+        # nrf x ncf array where each element is a number
+        # representing the element's position in the array
+        n1df = np.reshape(n1df_flat, shape)
+        umbpt = n1df[int(umb[1]), int(umb[0])]
+        umbzero = np.array([[0, umbpt, 1.]])
+        sparse_umb = sparse.coo_array((umbzero[:,2], (umbzero[:,0], umbzero[:,1])), shape=(nrf*ncf, nrf*ncf))
+        return sparse_umb
+
+    @staticmethod
+    def sparseUCrossGradAll(uvec, smoothing_weight, umb):
+        shape = uvec.shape[:2]
+        sparse_uxg = ImageViewer.sparseVecOpGrad(uvec, is_cross=True)
+        sparse_grad = ImageViewer.sparseGrad(shape)
+        sparse_umb = ImageViewer.sparseUmbilical(shape, umb)
+        sparse_all = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
+        return sparse_grad.tocsc(), sparse_all.tocsc()
+
+
+
+    """
+    @staticmethod
+    def sparseUCrossGradAllOld(weighted_u_vector, smoothing_weight, umb):
         # img = self.image
         # st = self.main_window.st
         # uvecf = st.vector_u
@@ -606,7 +783,7 @@ class ImageViewer(QLabel):
         grad = grad.copy()
         grad[:,0] += ncf*nrf
         print("ddx,ddy,grad", ddx.max(axis=0), ddy.max(axis=0), grad.min(axis=0), grad.max(axis=0))
-        grad[:,2] *= smoothing
+        grad[:,2] *= smoothing_weight
 
         umbzero = np.array([[3*ncf*nrf, umbpt, 1.]])
 
@@ -618,8 +795,9 @@ class ImageViewer(QLabel):
         sparse_uxg = sparse.coo_array((uxg[:,2], (uxg[:,0], uxg[:,1])), shape=(3*nrf*ncf+1, nrf*ncf))
         uxg = None
         return sparse_grad.tocsc(), sparse_uxg.tocsc()
+    """
 
-    def solveWindingLinear(self, basew, smoothing):
+    def solveWindingLinear(self, basew, smoothing_weight):
         '''
         dwdx = np.diff(basew, axis=1)[:-1,:]
         dwdy = np.diff(basew, axis=0)[:,:-1]
@@ -657,7 +835,7 @@ class ImageViewer(QLabel):
             if decimation > 1:
                 wvecu = wvecu[::decimation, ::decimation, :]
                 basew = basew.copy()[::decimation, ::decimation]
-            self.sparse_grad, self.sparse_u_cross_grad = self.sparseUCrossGrad(wvecu, smoothing, np.array(self.umb)/decimation)
+            self.sparse_grad, self.sparse_u_cross_grad = self.sparseUCrossGradAll(wvecu, smoothing_weight, np.array(self.umb)/decimation)
         print("is sparse", 
               sparse.issparse(self.sparse_grad),
               sparse.issparse(self.sparse_u_cross_grad))
@@ -738,9 +916,9 @@ class ImageViewer(QLabel):
         rad = np.sqrt(radsq)
         print("rad", rad.shape)
 
-        smoothing = .01
+        smoothing_weight = .01
         # smoothing = 0.
-        nextw = self.solveWindingLinear(rad, smoothing)
+        nextw = self.solveWindingLinear(rad, smoothing_weight)
         # maxrad = np.sqrt((self.umb*self.umb).sum())
         # print("maxrad", maxrad)
         # maxrad = 1500
