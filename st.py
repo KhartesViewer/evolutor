@@ -53,6 +53,16 @@ class ST(object):
         self.isotropy = None
         self.linearity = None
         self.coherence = None
+        # self.vector_u_interpolator_ = None
+        # self.vector_v_interpolator_ = None
+        self.lambda_u_interpolator_ = None
+        self.lambda_v_interpolator_ = None
+        self.vector_u_interpolator_ = None
+        self.vector_v_interpolator_ = None
+        self.grad_interpolator_ = None
+        self.isotropy_interpolator_ = None
+        self.linearity_interpolator_ = None
+        self.coherence_interpolator_ = None
 
     def saveImage(self, fname):
         timage = (self.image*65535).astype(np.uint16)
@@ -208,6 +218,7 @@ class ST(object):
         print(gy2[499:501,469:471])
         '''
 
+        '''
         self.lambda_u_interpolator = ST.createInterpolator(self.lambda_u)
         self.lambda_v_interpolator = ST.createInterpolator(self.lambda_v)
         self.vector_u_interpolator = ST.createVectorInterpolator(self.vector_u)
@@ -216,6 +227,71 @@ class ST(object):
         self.isotropy_interpolator = ST.createInterpolator(self.isotropy)
         self.linearity_interpolator = ST.createInterpolator(self.linearity)
         self.coherence_interpolator = ST.createInterpolator(self.coherence)
+        '''
+
+    @property
+    def lambda_u_interpolator(self):
+        if self.lambda_u_interpolator_ is None:
+            self.lambda_u_interpolator_ = ST.createInterpolator(self.lambda_u)
+        return self.lambda_u_interpolator_
+
+    @property
+    def lambda_v_interpolator(self):
+        if self.lambda_v_interpolator_ is None:
+            self.lambda_v_interpolator_ = ST.createInterpolator(self.lambda_v)
+        return self.lambda_v_interpolator_
+
+    @property
+    def vector_u_interpolator(self):
+        if self.vector_u_interpolator_ is None:
+            print("create vui")
+            self.vector_u_interpolator_ = ST.createVectorInterpolator(self.vector_u)
+        return self.vector_u_interpolator_
+
+    @vector_u_interpolator.setter
+    def vector_u_interpolator(self, nv):
+        # if nv is not None:
+        #     raise ValueError("Value must be None")
+        print("replace vui")
+        self.vector_u_interpolator_ = nv
+
+    @property
+    def vector_v_interpolator(self):
+        if self.vector_v_interpolator_ is None:
+            print("create vvi")
+            self.vector_v_interpolator_ = ST.createVectorInterpolator(self.vector_v)
+        return self.vector_v_interpolator_
+
+    @vector_v_interpolator.setter
+    def vector_v_interpolator(self, nv):
+        # if nv is not None:
+        #     raise ValueError("Value must be None")
+        print("replace vvi")
+        self.vector_v_interpolator_ = nv
+
+    @property
+    def grad_interpolator(self):
+        if self.grad_interpolator_ is None:
+            self.grad_interpolator_ = ST.createInterpolator(self.grad)
+        return self.grad_interpolator_
+
+    @property
+    def isotropy_interpolator(self):
+        if self.isotropy_interpolator_ is None:
+            self.isotropy_interpolator_ = ST.createInterpolator(self.isotropy)
+        return self.isotropy_interpolator_
+
+    @property
+    def linearity_interpolator(self):
+        if self.linearity_interpolator_ is None:
+            self.linearity_interpolator_ = ST.createInterpolator(self.linearity)
+        return self.linearity_interpolator_
+
+    @property
+    def coherence_interpolator(self):
+        if self.coherence_interpolator_ is None:
+            self.coherence_interpolator_ = ST.createInterpolator(self.coherence)
+        return self.coherence_interpolator_
 
     def create_vel_func(self, xy, sign, inertia, grad_nudge):
         x0 = np.array((xy))
@@ -1166,6 +1242,7 @@ class ST(object):
         except Exception as e:
             print("Error while loading",fname,e)
             return
+        print("eigens loaded")
 
         self.lambda_u = data[:,:,0]
         self.lambda_v = data[:,:,1]
@@ -1181,6 +1258,8 @@ class ST(object):
         # print("lambda_u", self.lambda_u.shape, self.lambda_u.dtype)
         # print("vector_u", self.vector_u.shape, self.vector_u.dtype)
 
+        '''
+        print("creating interpolators")
         self.lambda_u_interpolator = ST.createInterpolator(self.lambda_u)
         self.lambda_v_interpolator = ST.createInterpolator(self.lambda_v)
         # TODO: vector_u can abruptly change sign in areas of
@@ -1190,10 +1269,14 @@ class ST(object):
         # point, from interpolated lambda_u and lambda_v.  Or do
         # the lambdas need to be computed instead of interpolated
         # as well?
-        self.vector_u_interpolator = ST.createVectorInterpolator(self.vector_u)
-        self.vector_v_interpolator = ST.createVectorInterpolator(self.vector_v)
+        # self.vector_u_interpolator = ST.createVectorInterpolator(self.vector_u)
+        # self.vector_v_interpolator = ST.createVectorInterpolator(self.vector_v)
+        # self.vector_u_interpolator_ = None
+        # self.vector_v_interpolator_ = None
         self.grad_interpolator = ST.createInterpolator(self.grad)
         self.isotropy_interpolator = ST.createInterpolator(self.isotropy)
         self.linearity_interpolator = ST.createInterpolator(self.linearity)
         self.coherence_interpolator = ST.createInterpolator(self.coherence)
+        print("interpolators created")
+        '''
 

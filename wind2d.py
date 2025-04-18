@@ -5,6 +5,7 @@ import pathlib
 import math
 import csv
 from scipy import sparse
+import nrrd
 
 from st import ST
 
@@ -55,8 +56,9 @@ class MainWindow(QMainWindow):
         self.viewer.setDefaults()
 
         no_cache = parsed_args.no_cache
+        self.viewer.no_cache = no_cache
         tifname = pathlib.Path(parsed_args.input_tif)
-        nrrd_dir = parsed_args.cache_dir
+        cache_dir = parsed_args.cache_dir
         umbstr = parsed_args.umbilicus
         decimation = parsed_args.decimation
         self.viewer.decimation = decimation
@@ -64,15 +66,21 @@ class MainWindow(QMainWindow):
         self.viewer.overlay_interpolation = parsed_args.interpolation
         maxrad = parsed_args.maxrad
 
-        if nrrd_dir is None:
-            nrrd_dir = tifname.parent
+        if cache_dir is None:
+            cache_dir = tifname.parent
         else:
-            nrrd_dir = pathlib.Path(nrrd_dir)
-        nrrdname = nrrd_dir / (tifname.with_suffix(".nrrd")).name
+            cache_dir = pathlib.Path(cache_dir)
+        cache_file_base = cache_dir / tifname.stem
+        self.viewer.cache_dir = cache_dir
+        self.viewer.cache_file_base = cache_file_base
+        # nrrdname = cache_dir / (tifname.with_suffix(".nrrd")).name
+        nrrdname = cache_file_base.with_name(cache_file_base.name + "_e.nrrd")
 
         # python wind2d.py C:\Vesuvius\Projects\evol1\circle.tif --no_cache
 
-        # python wind2d.py "C:\Vesuvius\scroll 1 masked xx000\02000.tif" --cache_dir C:\Vesuvius\Projects\evol1 --umbilicus 3960,2280
+        # python wind2d.py "C:\Vesuvius\scroll 1 masked xx000\02000.tif" --cache_dir C:\Vesuvius\Projects\evol1 --umbilicus 3960,2280 --decimation 8 --colormap tab20 --interpolation nearest --maxrad 1800
+
+        #  python wind2d.py "C:\Vesuvius\scroll 1 full xx000\03000f.tif" --cache_dir C:\Vesuvius\Projects\evol1 --umbilicus 3670,2200 --decimation 8 --colormap tab20 --interpolation nearest --maxrad 1400
 
         # upath = pathlib.Path(r"C:\Vesuvius\Projects\evol1\umbilicus-scroll1a_zyx.txt")
         # uzyxs = self.readUmbilicus(upath)
@@ -148,7 +156,7 @@ class ImageViewer(QLabel):
         self.dip_bars_visible = True
         self.umb = None
         self.overlay_data = None
-        self.sparse_u_cross_grad = None
+        # self.sparse_u_cross_grad = None
         self.decimation = 1
         self.overlay_colormap = "viridis"
         self.overlay_interpolation = "linear"
@@ -216,6 +224,7 @@ class ImageViewer(QLabel):
             "spec11": "colorbrewer:Spectral_11",
             "set12": "colorbrewer:Set3_12",
             "tab20": "seaborn:tab20",
+            "hsv": "matlab:hsv",
             }
 
     @staticmethod
@@ -298,13 +307,17 @@ class ImageViewer(QLabel):
                 self.overlay_interpolation = "linear"
             self.drawAll()
         elif e.key() == Qt.Key_R:
-            delta = 100
+            if e.modifiers() & Qt.ControlModifier:
+                delta = 10
+            else:
+                delta = 100
             if e.modifiers() & Qt.ShiftModifier:
                 # print("Cap R")
                 self.maxrad += delta
             elif self.maxrad > delta:
                 self.maxrad -= delta
                 #print("r")
+            print("maxrad", self.maxrad)
             self.drawAll()
         elif e.key() == Qt.Key_U:
             wxy = self.mouseXy()
@@ -614,6 +627,7 @@ class ImageViewer(QLabel):
         sparse_umb = sparse.coo_array((umbzero[:,2], (umbzero[:,0], umbzero[:,1])), shape=(nrf*ncf, nrf*ncf))
         return sparse_umb
 
+    """
     @staticmethod
     def sparseUCrossGradAll(uvec, smoothing_weight, umb):
         shape = uvec.shape[:2]
@@ -623,31 +637,29 @@ class ImageViewer(QLabel):
         sparse_all = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
         return sparse_grad.tocsc(), sparse_all.tocsc()
 
-
-    def solveWindingLinear(self, basew, smoothing_weight):
+    def solveRadius0Old(self, basew, smoothing_weight):
         st = self.main_window.st
         decimation = self.decimation
         print("decimation", decimation)
 
-        if True or self.sparse_u_cross_grad is None:
-            vecu = st.vector_u
-            coh = st.coherence[:,:,np.newaxis]
-            wvecu = coh*vecu
-            if decimation > 1:
-                wvecu = wvecu[::decimation, ::decimation, :]
-                basew = basew.copy()[::decimation, ::decimation]
-            self.sparse_grad, self.sparse_u_cross_grad = self.sparseUCrossGradAll(wvecu, smoothing_weight, np.array(self.umb)/decimation)
-        print("is sparse", 
-              sparse.issparse(self.sparse_grad),
-              sparse.issparse(self.sparse_u_cross_grad))
-        
+        vecu = st.vector_u
+        coh = st.coherence[:,:,np.newaxis]
+        wvecu = coh*vecu
+        if decimation > 1:
+            wvecu = wvecu[::decimation, ::decimation, :]
+            basew = basew.copy()[::decimation, ::decimation]
+        sparse_grad, sparse_u_cross_grad = self.sparseUCrossGradAll(wvecu, smoothing_weight, np.array(self.umb)/decimation)
+        # print("is sparse", 
+        #       sparse.issparse(sparse_grad),
+        #       sparse.issparse(sparse_u_cross_grad))
 
-        A = self.sparse_u_cross_grad
+        A = sparse_u_cross_grad
         print("A", A.shape, A.dtype)
 
-        b = -self.sparse_u_cross_grad @ basew.flatten()
+        b = -sparse_u_cross_grad @ basew.flatten()
         b[basew.size:] = 0.
 
+        '''
         At = A.transpose()
         AtA = At @ A
         print("AtA", AtA.shape, sparse.issparse(AtA))
@@ -662,12 +674,213 @@ class ImageViewer(QLabel):
         lu = sparse.linalg.splu(AtA.tocsc())
         x = lu.solve(Atb)
         print("x", x.shape, x.dtype, x.min(), x.max())
+        '''
+        x = self.solveAxEqb(A, b)
         out = x.reshape(basew.shape)
         out += basew
         print("out", out.shape, out.min(), out.max())
         if decimation > 1:
-            out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_AREA)
+            out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_LINEAR)
         return out
+    """
+
+    def solveRadius0(self, basew, smoothing_weight):
+        st = self.main_window.st
+        decimation = self.decimation
+        print("decimation", decimation)
+
+        vecu = st.vector_u
+        coh = st.coherence[:,:,np.newaxis]
+        wvecu = coh*vecu
+        if decimation > 1:
+            wvecu = wvecu[::decimation, ::decimation, :]
+            basew = basew.copy()[::decimation, ::decimation]
+        shape = wvecu.shape[:2]
+        sparse_uxg = ImageViewer.sparseVecOpGrad(wvecu, is_cross=True)
+        sparse_grad = ImageViewer.sparseGrad(shape)
+        sparse_umb = ImageViewer.sparseUmbilical(shape, np.array(self.umb)/decimation)
+        sparse_u_cross_grad = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
+
+        A = sparse_u_cross_grad
+        print("A", A.shape, A.dtype)
+
+        b = -sparse_u_cross_grad @ basew.flatten()
+        b[basew.size:] = 0.
+        x = self.solveAxEqb(A, b)
+        out = x.reshape(basew.shape)
+        out += basew
+        print("out", out.shape, out.min(), out.max())
+        if decimation > 1:
+            out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_LINEAR)
+        return out
+
+
+    def solveRadius1(self, rad0, smoothing_weight, cross_weight):
+        st = self.main_window.st
+        decimation = self.decimation
+        print("decimation", decimation)
+
+        icw = 1.-cross_weight
+
+        uvec = st.vector_u
+        coh = st.coherence[:,:,np.newaxis]
+        wuvec = coh*uvec
+        if decimation > 1:
+            wuvec = wuvec[::decimation, ::decimation, :]
+            coh = coh.copy()[::decimation, ::decimation, :]
+            rad0 = rad0.copy()[::decimation, ::decimation]
+        shape = wuvec.shape[:2]
+        sparse_u_cross_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=True)
+        sparse_u_dot_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=False)
+        sparse_grad = ImageViewer.sparseGrad(shape)
+        sparse_umb = ImageViewer.sparseUmbilical(shape, np.array(self.umb)/decimation)
+        '''
+        test_udgf = sparse_u_dot_g @ rad0.flatten()
+        test_udg = test_udgf.reshape(shape)
+        print("test_udg")
+        print(test_udg[100, 125])
+        print(test_udg[150, 125])
+        test_gf = sparse_grad @ rad0.flatten()
+        test_g = test_gf.reshape(wuvec.shape)
+        print("test_g")
+        print(test_g[100, 125])
+        print(test_g[150, 125])
+        print("rad0")
+        print(rad0[100, 125], rad0[100, 126], rad0[101,125])
+        print(rad0[150, 125], rad0[150, 126], rad0[151,125])
+        print("uvec")
+        print(uvec[100*decimation, 125*decimation])
+        print(uvec[150*decimation, 125*decimation])
+        print("coh")
+        print(coh[100, 125])
+        print(coh[150, 125])
+        '''
+
+        # sparse_u_cross_grad = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
+
+        sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
+
+        A = sparse_all
+        print("A", A.shape, A.dtype)
+
+        # b = -sparse_all @ rad0.flatten()
+        # b[rad0.size:] = 0.
+        b = np.zeros((A.shape[0]), dtype=np.float64)
+        # b[:rad0.size] = 1.*smoothing_weight*coh.flatten()
+        b[:rad0.size] = 1.*coh.flatten()*decimation*icw
+        x = self.solveAxEqb(A, b)
+        out = x.reshape(rad0.shape)
+        print("out", out.shape, out.min(), out.max())
+        if decimation > 1:
+            out = cv2.resize(out, (uvec.shape[1], uvec.shape[0]), interpolation=cv2.INTER_LINEAR)
+        return out
+
+    def solveAxEqb(self, A, b):
+        At = A.transpose()
+        AtA = At @ A
+        print("AtA", AtA.shape, sparse.issparse(AtA))
+        # print("ata", ata.shape, ata.dtype, ata[ata!=0], np.argwhere(ata))
+        ssum = AtA.sum(axis=0)
+        print("ssum", np.argwhere(np.abs(ssum)>1.e-10))
+        asum = np.abs(AtA).sum(axis=0)
+        print("asum", np.argwhere(asum==0))
+        Atb = At @ b
+        print("Atb", Atb.shape, sparse.issparse(Atb))
+
+        lu = sparse.linalg.splu(AtA.tocsc())
+        x = lu.solve(Atb)
+        print("x", x.shape, x.dtype, x.min(), x.max())
+        return x
+
+    def alignUVVec(self, rad0):
+        st = self.main_window.st
+        uvec = st.vector_u
+        shape = uvec.shape[:2]
+        sparse_grad = self.sparseGrad(shape)
+        # print("sg", sparse_grad.shape)
+        # ix = 440
+        # iy = 430
+        # print("sg", sparse_grad[500*iy+ix])
+        # d = 1
+        # print("r0", rad0[iy,ix])
+        # print("r0x", rad0[iy,ix+d])
+        # print("r0y", rad0[iy+d,ix])
+        delr_flat = sparse_grad @ rad0.flatten()
+        delr = delr_flat.reshape(uvec.shape)
+        # print("delr", delr[iy,ix])
+        dot = (uvec*delr).sum(axis=2)
+        # print("dot", dot[iy,ix])
+        print("dots", (dot<0).sum())
+        print("not dots", (dot>=0).sum())
+        st.vector_u[dot<0] *= -1
+        st.vector_v[dot<0] *= -1
+        # st.vector_u_interpolator = ST.createVectorInterpolator(st.vector_u)
+        # st.vector_v_interpolator = ST.createVectorInterpolator(st.vector_v)
+
+        # Replace vector interpolator by simple interpolator
+        st.vector_u_interpolator = ST.createInterpolator(st.vector_u)
+        st.vector_v_interpolator = ST.createInterpolator(st.vector_v)
+        # Force computation of interpolator
+        # st.vector_u_interpolator = None
+        # st.vector_v_interpolator = None
+
+    def loadRadius0(self, fname):
+        try:
+            data, data_header = nrrd.read(str(fname), index_order='C')
+        except Exception as e:
+            print("Error while loading", fname, e)
+            return None
+        print("rad0 loaded")
+        return data
+
+    def saveRadius0(self, fname, rad0):
+        header = {"encoding": "raw",}
+        nrrd.write(str(fname), rad0, index_order='C')
+
+    def loadArray(self, part):
+        fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
+        try:
+            data, data_header = nrrd.read(str(fname), index_order='C')
+        except Exception as e:
+            print("Error while loading", fname, e)
+            return None
+        print("arr loaded", part)
+        return data
+
+    def saveArray(self, part, arr):
+        fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
+        header = {"encoding": "raw",}
+        nrrd.write(str(fname), arr, index_order='C')
+
+    def loadOrCreateArray(self, part, fn):
+        # fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
+        if self.no_cache:
+            print("calculating arr", part)
+            arr = fn()
+            return arr
+
+        print("loading arr", part)
+        # rad0 = self.loadRadius0(fname)
+        arr = self.loadArray(part)
+        if arr is None:
+            print("calculating arr", part)
+            # rad0 = self.solveRadius0(rad, smoothing_weight)
+            arr = fn()
+            print("saving arr", part)
+            # self.saveRadius0(fname, rad0)
+            self.saveArray(part, arr)
+        return arr
+
+    def loadOrCreateRadius0(self, rad, smoothing_weight, part):
+        fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
+        print("loading rad0")
+        rad0 = self.loadRadius0(fname)
+        if rad0 is None:
+            print("calculating rad0")
+            rad0 = self.solveRadius0(rad, smoothing_weight)
+            print("saving rad0")
+            self.saveRadius0(fname, rad0)
+        return rad0
 
     def solveWindingOneStep(self):
         im = self.image
@@ -683,8 +896,29 @@ class ImageViewer(QLabel):
 
         smoothing_weight = .01
         # smoothing = 0.
-        nextw = self.solveWindingLinear(rad, smoothing_weight)
-        self.overlay_data = nextw
+        '''
+        if self.no_cache:
+            rad0 = self.solveRadius0(rad, smoothing_weight)
+        else:
+            rad0 = self.loadOrCreateRadius0(rad, smoothing_weight, "_r0")
+        '''
+        rad0 = self.loadOrCreateArray(
+                "_r0", lambda: self.solveRadius0(rad, smoothing_weight))
+        self.alignUVVec(rad0)
+
+        # TODO: for testing
+        # self.overlay_data = rad0
+        # return
+
+        cross_weight = .01
+        # cross_weight = .0
+        cross_weight = .5
+        cross_weight = 0.95
+        rad1 = self.loadOrCreateArray(
+                "_r1", lambda: self.solveRadius1(rad0, smoothing_weight, cross_weight))
+        # rad1 = self.solveRadius1(rad0, smoothing_weight, cross_weight)
+        # rad1 *= 500.
+        self.overlay_data = rad1
 
     # input: 2D float array, range 0.0 to 1.0
     # output: RGB array, uint8, with colors determined by the
@@ -732,8 +966,8 @@ class ImageViewer(QLabel):
             y1s = int((y1-ay1)/z)
             x2s = int((x2-ax1)/z)
             y2s = int((y2-ay1)/z)
-            zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_AREA)
-            cslc = cm(zslc)
+            zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_LINEAR)
+            cslc = cm(np.remainder(zslc, 1.))
             outrgb[y1:y2, x1:x2, :] = (255*cslc[:,:,:3]*alpha).astype(np.uint8)
         return outrgb
 
@@ -797,16 +1031,17 @@ class ImageViewer(QLabel):
 
             lvecs = linelen*uvs*coherence[:,:,np.newaxis]
 
-            x1 = dpw+lvecs
+            # x1 = dpw+lvecs
+            x1 = dpw+.6*lvecs
             lines = np.concatenate((x0,x1), axis=2)
             lines = lines.reshape(-1,1,2,2).astype(np.int32)
-            # cv2.polylines(outrgb, lines, False, (0,255,0), 1)
+            cv2.polylines(outrgb, lines, False, (0,255,0), 1)
 
             xm = dpw-.5*lvecs
             xp = dpw+.5*lvecs
             lines = np.concatenate((xm,xp), axis=2)
             lines = lines.reshape(-1,1,2,2).astype(np.int32)
-            cv2.polylines(outrgb, lines, False, (0,255,0), 1)
+            # cv2.polylines(outrgb, lines, False, (0,255,0), 1)
 
             points = dpw.reshape(-1,1,1,2).astype(np.int32)
             cv2.polylines(outrgb, points, True, (0,255,255), 3)
