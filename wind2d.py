@@ -51,7 +51,6 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar(self)
         self.setStatusBar(self.status_bar)
         self.viewer = ImageViewer(self)
-        # self.setCentralWidget(self.viewer)
         grid.addWidget(self.viewer, 0, 0)
         self.viewer.setDefaults()
 
@@ -293,8 +292,6 @@ class ImageViewer(QLabel):
             self.drawAll()
         '''
         if e.key() == Qt.Key_W:
-            # print("w at",ixy)
-            # self.iterateWinding()
             self.solveWindingOneStep()
             self.drawAll()
         elif e.key() == Qt.Key_C:
@@ -419,7 +416,6 @@ class ImageViewer(QLabel):
         zh = wh/ih
         zoom = min(zw, zh)
         self.setZoom(zoom)
-        # self.bar0 = self.center
         print("center",self.center[0],self.center[1],"zoom",self.zoom)
 
     def setZoom(self, zoom):
@@ -429,7 +425,6 @@ class ImageViewer(QLabel):
         if prev != 0:
             bw,bh = self.bar0
             cw,ch = self.center
-            # print(self.bar0, self.center)
             bw -= cw
             bh -= ch
             bw /= zoom/prev
@@ -504,7 +499,6 @@ class ImageViewer(QLabel):
 
         dx1 = diag3.copy()
         dx1[:,1] += 1
-        # TODO: index depends on operator!
         if is_cross:
             dx0[:,2] = -vec2d_flat[:,1]
             dx1[:,2] = vec2d_flat[:,1]
@@ -627,63 +621,6 @@ class ImageViewer(QLabel):
         sparse_umb = sparse.coo_array((umbzero[:,2], (umbzero[:,0], umbzero[:,1])), shape=(nrf*ncf, nrf*ncf))
         return sparse_umb
 
-    """
-    @staticmethod
-    def sparseUCrossGradAll(uvec, smoothing_weight, umb):
-        shape = uvec.shape[:2]
-        sparse_uxg = ImageViewer.sparseVecOpGrad(uvec, is_cross=True)
-        sparse_grad = ImageViewer.sparseGrad(shape)
-        sparse_umb = ImageViewer.sparseUmbilical(shape, umb)
-        sparse_all = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
-        return sparse_grad.tocsc(), sparse_all.tocsc()
-
-    def solveRadius0Old(self, basew, smoothing_weight):
-        st = self.main_window.st
-        decimation = self.decimation
-        print("decimation", decimation)
-
-        vecu = st.vector_u
-        coh = st.coherence[:,:,np.newaxis]
-        wvecu = coh*vecu
-        if decimation > 1:
-            wvecu = wvecu[::decimation, ::decimation, :]
-            basew = basew.copy()[::decimation, ::decimation]
-        sparse_grad, sparse_u_cross_grad = self.sparseUCrossGradAll(wvecu, smoothing_weight, np.array(self.umb)/decimation)
-        # print("is sparse", 
-        #       sparse.issparse(sparse_grad),
-        #       sparse.issparse(sparse_u_cross_grad))
-
-        A = sparse_u_cross_grad
-        print("A", A.shape, A.dtype)
-
-        b = -sparse_u_cross_grad @ basew.flatten()
-        b[basew.size:] = 0.
-
-        '''
-        At = A.transpose()
-        AtA = At @ A
-        print("AtA", AtA.shape, sparse.issparse(AtA))
-        # print("ata", ata.shape, ata.dtype, ata[ata!=0], np.argwhere(ata))
-        ssum = AtA.sum(axis=0)
-        print("ssum", np.argwhere(np.abs(ssum)>1.e-10))
-        asum = np.abs(AtA).sum(axis=0)
-        print("asum", np.argwhere(asum==0))
-        Atb = At @ b
-        print("Atb", Atb.shape, sparse.issparse(Atb))
-
-        lu = sparse.linalg.splu(AtA.tocsc())
-        x = lu.solve(Atb)
-        print("x", x.shape, x.dtype, x.min(), x.max())
-        '''
-        x = self.solveAxEqb(A, b)
-        out = x.reshape(basew.shape)
-        out += basew
-        print("out", out.shape, out.min(), out.max())
-        if decimation > 1:
-            out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_LINEAR)
-        return out
-    """
-
     def solveRadius0(self, basew, smoothing_weight):
         st = self.main_window.st
         decimation = self.decimation
@@ -734,39 +671,13 @@ class ImageViewer(QLabel):
         sparse_u_dot_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=False)
         sparse_grad = ImageViewer.sparseGrad(shape)
         sparse_umb = ImageViewer.sparseUmbilical(shape, np.array(self.umb)/decimation)
-        '''
-        test_udgf = sparse_u_dot_g @ rad0.flatten()
-        test_udg = test_udgf.reshape(shape)
-        print("test_udg")
-        print(test_udg[100, 125])
-        print(test_udg[150, 125])
-        test_gf = sparse_grad @ rad0.flatten()
-        test_g = test_gf.reshape(wuvec.shape)
-        print("test_g")
-        print(test_g[100, 125])
-        print(test_g[150, 125])
-        print("rad0")
-        print(rad0[100, 125], rad0[100, 126], rad0[101,125])
-        print(rad0[150, 125], rad0[150, 126], rad0[151,125])
-        print("uvec")
-        print(uvec[100*decimation, 125*decimation])
-        print(uvec[150*decimation, 125*decimation])
-        print("coh")
-        print(coh[100, 125])
-        print(coh[150, 125])
-        '''
-
-        # sparse_u_cross_grad = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
-
         sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
 
         A = sparse_all
         print("A", A.shape, A.dtype)
 
-        # b = -sparse_all @ rad0.flatten()
         # b[rad0.size:] = 0.
         b = np.zeros((A.shape[0]), dtype=np.float64)
-        # b[:rad0.size] = 1.*smoothing_weight*coh.flatten()
         b[:rad0.size] = 1.*coh.flatten()*decimation*icw
         x = self.solveAxEqb(A, b)
         out = x.reshape(rad0.shape)
@@ -797,14 +708,6 @@ class ImageViewer(QLabel):
         uvec = st.vector_u
         shape = uvec.shape[:2]
         sparse_grad = self.sparseGrad(shape)
-        # print("sg", sparse_grad.shape)
-        # ix = 440
-        # iy = 430
-        # print("sg", sparse_grad[500*iy+ix])
-        # d = 1
-        # print("r0", rad0[iy,ix])
-        # print("r0x", rad0[iy,ix+d])
-        # print("r0y", rad0[iy+d,ix])
         delr_flat = sparse_grad @ rad0.flatten()
         delr = delr_flat.reshape(uvec.shape)
         # print("delr", delr[iy,ix])
@@ -814,15 +717,10 @@ class ImageViewer(QLabel):
         print("not dots", (dot>=0).sum())
         st.vector_u[dot<0] *= -1
         st.vector_v[dot<0] *= -1
-        # st.vector_u_interpolator = ST.createVectorInterpolator(st.vector_u)
-        # st.vector_v_interpolator = ST.createVectorInterpolator(st.vector_v)
 
         # Replace vector interpolator by simple interpolator
         st.vector_u_interpolator = ST.createInterpolator(st.vector_u)
         st.vector_v_interpolator = ST.createInterpolator(st.vector_v)
-        # Force computation of interpolator
-        # st.vector_u_interpolator = None
-        # st.vector_v_interpolator = None
 
     def loadRadius0(self, fname):
         try:
@@ -853,34 +751,19 @@ class ImageViewer(QLabel):
         nrrd.write(str(fname), arr, index_order='C')
 
     def loadOrCreateArray(self, part, fn):
-        # fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
         if self.no_cache:
             print("calculating arr", part)
             arr = fn()
             return arr
 
         print("loading arr", part)
-        # rad0 = self.loadRadius0(fname)
         arr = self.loadArray(part)
         if arr is None:
             print("calculating arr", part)
-            # rad0 = self.solveRadius0(rad, smoothing_weight)
             arr = fn()
             print("saving arr", part)
-            # self.saveRadius0(fname, rad0)
             self.saveArray(part, arr)
         return arr
-
-    def loadOrCreateRadius0(self, rad, smoothing_weight, part):
-        fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
-        print("loading rad0")
-        rad0 = self.loadRadius0(fname)
-        if rad0 is None:
-            print("calculating rad0")
-            rad0 = self.solveRadius0(rad, smoothing_weight)
-            print("saving rad0")
-            self.saveRadius0(fname, rad0)
-        return rad0
 
     def solveWindingOneStep(self):
         im = self.image
@@ -895,13 +778,6 @@ class ImageViewer(QLabel):
         print("rad", rad.shape)
 
         smoothing_weight = .01
-        # smoothing = 0.
-        '''
-        if self.no_cache:
-            rad0 = self.solveRadius0(rad, smoothing_weight)
-        else:
-            rad0 = self.loadOrCreateRadius0(rad, smoothing_weight, "_r0")
-        '''
         rad0 = self.loadOrCreateArray(
                 "_r0", lambda: self.solveRadius0(rad, smoothing_weight))
         self.alignUVVec(rad0)
@@ -910,13 +786,9 @@ class ImageViewer(QLabel):
         # self.overlay_data = rad0
         # return
 
-        cross_weight = .01
-        # cross_weight = .0
-        cross_weight = .5
         cross_weight = 0.95
         rad1 = self.loadOrCreateArray(
                 "_r1", lambda: self.solveRadius1(rad0, smoothing_weight, cross_weight))
-        # rad1 = self.solveRadius1(rad0, smoothing_weight, cross_weight)
         # rad1 *= 500.
         self.overlay_data = rad1
 
