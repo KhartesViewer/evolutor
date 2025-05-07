@@ -127,13 +127,13 @@ class MainWindow(QMainWindow):
             print("computing/loading structural tensors")
             self.st.loadOrCreateEigens(nrrdname)
 
-        # mask = self.viewer.createMask()
+        mask = self.viewer.createMask()
 
         self.viewer.setOverlayDefaults()
         self.viewer.saveCurrentOverlay()
         self.viewer.overlay_name = "coherence"
         self.viewer.overlay_data = self.st.coherence.copy()
-        # self.viewer.overlay_data *= mask
+        self.viewer.overlay_data *= mask
         self.viewer.overlay_colormap = "viridis"
         self.viewer.overlay_interpolation = "linear"
         self.viewer.overlay_maxrad = 1.0
@@ -713,7 +713,7 @@ class ImageViewer(QLabel):
         return sparse_diag
 
     @staticmethod
-    def sparseGrad(shape, multiplier=None):
+    def sparseGrad(shape, multiplier=None, interleave=True):
         # full number of rows, columns of image
         nrf, ncf = shape
         nr = nrf-1
@@ -788,14 +788,19 @@ class ImageViewer(QLabel):
         dy0g = None
         dy1g = None
 
-        ddxg[:,0] *= 2
-        ddyg[:,0] *= 2
-        ddyg[:,0] += 1
+        if interleave:
+            ddxg[:,0] *= 2
+            ddyg[:,0] *= 2
+            ddyg[:,0] += 1
 
-        grad = np.concatenate((ddxg, ddyg), axis=0)
-        print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
-        sparse_grad = sparse.coo_array((grad[:,2], (grad[:,0], grad[:,1])), shape=(2*nrf*ncf, nrf*ncf))
-        return sparse_grad
+            grad = np.concatenate((ddxg, ddyg), axis=0)
+            print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
+            sparse_grad = sparse.coo_array((grad[:,2], (grad[:,0], grad[:,1])), shape=(2*nrf*ncf, nrf*ncf))
+            return sparse_grad
+        else:
+            sparse_grad_x = sparse.coo_array((ddxg[:,2], (ddxg[:,0], ddxg[:,1])), shape=(nrf*ncf, nrf*ncf))
+            sparse_grad_y = sparse.coo_array((ddyg[:,2], (ddyg[:,0], ddyg[:,1])), shape=(nrf*ncf, nrf*ncf))
+            return sparse_grad_x, sparse_grad_y
 
     @staticmethod
     def sparseUmbilical(shape, umb):
@@ -854,8 +859,8 @@ class ImageViewer(QLabel):
         coh = st.coherence
 
         # TODO: for testing
-        # mask = self.createMask()
-        # coh = coh.copy()*mask
+        mask = self.createMask()
+        coh = coh.copy()*mask
 
         coh = coh[:,:,np.newaxis]
 
@@ -868,8 +873,32 @@ class ImageViewer(QLabel):
         sparse_u_cross_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=True)
         sparse_u_dot_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=False)
         sparse_grad = ImageViewer.sparseGrad(shape)
+        sgx, sgy = ImageViewer.sparseGrad(shape, interleave=False)
+        hxx = sgx.transpose() @ sgx
+        hyy = sgy.transpose() @ sgy
+        hxy = sgx @ sgy
+        print("sgx", sgx.shape, "hxx", hxx.shape, "hxy", hxy.shape)
+
+        '''
+        sgcsr = sparse_grad.tocsr()
+        sg0 = sgcsr[0::2, 0]
+        sg1 = sgcsr[1::2, 0]
+        print("sg0", sg0.shape)
+        print("sg1", sg1.shape)
+        sg2 = scipy.sparse.vstack((sg0, sg1))
+        print("sg2", sg2.shape)
+        '''
+
+
+        # sparse_hess = sparse_grad @ sparse_grad.transpose()
+        # sparse_hess = sparse_hess.reshape(-1,sparse_grad.shape[1])
+
+        # print("grad", sparse_grad.shape, "hess", sparse_hess.shape)
         sparse_umb = ImageViewer.sparseUmbilical(shape, np.array(self.umb)/decimation)
-        sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
+        # sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
+        # sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*hxx, smoothing_weight*hyy, smoothing_weight*hxy, sparse_umb))
+        sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*hxx, smoothing_weight*hyy, sparse_umb))
+        ## sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_hess, sparse_umb))
 
         A = sparse_all
         print("A", A.shape, A.dtype)
@@ -1332,8 +1361,17 @@ class ImageViewer(QLabel):
         # self.overlay_data = rad0
         # return
 
-        smoothing_weight = .01
+        # smoothing_weight = .01
+        # hess
+        smoothing_weight = .1
+        smoothing_weight = .2
+        # smoothing_weight = .0001
+        # grad
+        # smoothing_weight = .01
         cross_weight = 0.95
+        # cross_weight = 0.99
+        # cross_weight = 0.75
+        # cross_weight = 0.95
         # smoothing_weight = .05
         # cross_weight = 0.75
         rad1 = self.loadOrCreateArray(
