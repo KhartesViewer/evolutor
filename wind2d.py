@@ -856,11 +856,12 @@ class ImageViewer(QLabel):
 
         uvec = st.vector_u
         # coh = st.coherence[:,:,np.newaxis]
-        coh = st.coherence
+        coh = st.coherence.copy()
 
         # TODO: for testing
-        mask = self.createMask()
-        coh = coh.copy()*mask
+        # mask = self.createMask()
+        ## coh = coh.copy()*mask
+        # coh *= mask
 
         coh = coh[:,:,np.newaxis]
 
@@ -1343,13 +1344,22 @@ class ImageViewer(QLabel):
         im = self.image
         if im is None:
             return
+
+
         rad = self.createRadiusArray()
 
         # smoothing_weight = .01
         smoothing_weight = .1
         rad0 = self.loadOrCreateArray(
                 "_r0", lambda: self.solveRadius0(rad, smoothing_weight))
+
         self.alignUVVec(rad0)
+
+        # copy uvec AFTER it has been aligned
+        st = self.main_window.st
+        uvec = st.vector_u.copy()
+        coh = st.coherence.copy()
+
         self.overlay_data = rad0
         self.overlay_name = "rad0"
         self.overlay_colormap = "tab20"
@@ -1363,7 +1373,7 @@ class ImageViewer(QLabel):
 
         # smoothing_weight = .01
         # hess
-        smoothing_weight = .1
+        # smoothing_weight = .1
         smoothing_weight = .2
         # smoothing_weight = .0001
         # grad
@@ -1387,6 +1397,19 @@ class ImageViewer(QLabel):
         # # r factor
         # rad1 *= .7709
 
+        cargs = np.argsort(coh.flatten())
+        min_coh = coh.flatten()[cargs[len(cargs)//4]]
+        rargs = np.argsort(rad1.flatten())
+        max_rad1 = rad1.flatten()[rargs[len(rargs)//4]]
+
+        crb = np.logical_and(coh > min_coh, rad1 < max_rad1)
+        crb = np.logical_and(crb, rad > 0)
+        rs = rad[crb]
+        r1s = rad1[crb]
+        mr1r = np.median(r1s/rs)
+        print("mr1r", mr1r)
+        rad1 /= mr1r
+
         self.overlay_data = rad1
         self.overlay_name = "rad1"
         self.overlay_colormap = "tab20"
@@ -1396,8 +1419,8 @@ class ImageViewer(QLabel):
 
         gradx, grady = self.computeGrad(rad1)
         # grad = np.sqrt(gradx*gradx+grady*grady)
-        st = self.main_window.st
-        uvec = st.vector_u
+        # st = self.main_window.st
+        # uvec = st.vector_u
         gdu = gradx*uvec[:,:,0] + grady*uvec[:,:,1]
         self.overlay_name = "rad1 gdu"
         self.overlay_data = gdu
@@ -1415,11 +1438,14 @@ class ImageViewer(QLabel):
         # self.overlay_data = rad1
         # return
 
+        '''
         # theta0 = self.createThetaArray()
         cross_weight = 0.2
         # cross_weight = 0.5
         smoothing_weight = .01
         # theta0 = self.solveThetaOld(rad, smoothing_weight, cross_weight)
+        '''
+
         '''
         # dot_weight = 4
         # dot_weight = 2
@@ -1475,16 +1501,14 @@ class ImageViewer(QLabel):
         # rad1 *= .7709
 
         # theta0 = self.solveThetaNew(rad1, dot_weight, smoothing_weight, theta_weight)
-        st = self.main_window.st
-        uvec = st.vector_u
-        coh = st.coherence
-        # save a copy of the original coh
-        uvec, coh = self.synthesizeUVecArray(rad1)
+
+        # th0uvec, th0coh = uvec, coh
+        th0uvec, th0coh = self.synthesizeUVecArray(rad1)
         # coh[:,:] = 1.
         ''''''
         # theta0,theta0nearest = self.loadOrCreateArray(
         theta0 = self.loadOrCreateArray(
-                  "_th0", lambda: self.solveThetaNew(rad1, uvec, coh, dot_weight, smoothing_weight, theta_weight))
+                  "_th0", lambda: self.solveThetaNew(rad1, th0uvec, th0coh, dot_weight, smoothing_weight, theta_weight))
         ''''''
         # theta0 *= 10
 
@@ -1520,20 +1544,20 @@ class ImageViewer(QLabel):
         self.overlay_colormap = "hsv"
         self.overlay_interpolation = "linear"
         self.overlay_maxrad = 2.
-        self.saveCurrentOverlay()
+        # self.saveCurrentOverlay()
         self.overlay_data = grady
         self.overlay_name = "rad1 grad theta0 y"
-        self.saveCurrentOverlay()
+        # self.saveCurrentOverlay()
         self.overlay_data = grad
         self.overlay_name = "rad1 grad theta0"
         self.overlay_colormap = "hsv"
         self.overlay_interpolation = "linear"
-        self.saveCurrentOverlay()
+        # self.saveCurrentOverlay()
 
 
         # st = self.main_window.st
         # uvec = st.vector_u
-        gxu = -gradx*uvec[:,:,1] + grady*uvec[:,:,0]
+        gxu = -gradx*th0uvec[:,:,1] + grady*th0uvec[:,:,0]
         self.overlay_name = "th0 gxu"
         self.overlay_data = gxu
         self.overlay_colormap = "hsv"
@@ -1542,16 +1566,16 @@ class ImageViewer(QLabel):
 
         # st = self.main_window.st
         # uvec = st.vector_u
-        gdu = gradx*uvec[:,:,0] + grady*uvec[:,:,1]
+        gdu = gradx*th0uvec[:,:,0] + grady*th0uvec[:,:,1]
         self.overlay_name = "th0 gdu"
         self.overlay_data = gdu
         self.overlay_colormap = "hsv"
         self.overlay_interpolation = "linear"
-        self.saveCurrentOverlay()
+        # self.saveCurrentOverlay()
 
-        stcoh = st.coherence
-        cargs = np.argsort(stcoh.flatten())
-        min_coh = stcoh.flatten()[cargs[len(cargs)//4]]
+        # stcoh = st.coherence
+        cargs = np.argsort(coh.flatten())
+        min_coh = coh.flatten()[cargs[len(cargs)//4]]
         rargs = np.argsort(rad1.flatten())
         max_rad1 = rad1.flatten()[rargs[len(rargs)//4]]
 
@@ -1567,7 +1591,7 @@ class ImageViewer(QLabel):
         # smoothing_weight = .6
 
         theta1 = self.loadOrCreateArray(
-                  "_th1", lambda: self.solveThetaNew(rad1, uvec, coh, dot_weight, smoothing_weight, theta_weight))
+                  "_th1", lambda: self.solveThetaNew(rad1, th0uvec, th0coh, dot_weight, smoothing_weight, theta_weight))
 
         self.overlay_data = theta1
         self.overlay_name = "theta1"
@@ -1579,7 +1603,7 @@ class ImageViewer(QLabel):
         gradx, grady = self.computeGrad(theta1)
         gradx *= rad1
         grady *= rad1
-        gxu = -gradx*uvec[:,:,1] + grady*uvec[:,:,0]
+        gxu = -gradx*th0uvec[:,:,1] + grady*th0uvec[:,:,0]
         self.overlay_name = "th1 gxu"
         self.overlay_data = gxu
         self.overlay_colormap = "hsv"
