@@ -7,6 +7,7 @@ import datetime
 import csv
 from scipy import sparse
 import nrrd
+import skimage
 
 from st import ST
 
@@ -178,16 +179,17 @@ class MainWindow(QMainWindow):
         self.viewer.keyPressEvent(e)
 
 class Overlay():
-    def __init__(self, name, data, maxrad, colormap="viridis", interpolation="linear"):
+    def __init__(self, name, data, maxrad, colormap="viridis", interpolation="linear", alpha=None):
         self.name = name
         self.data = data
         self.colormap = colormap
         self.interpolation = interpolation
         self.maxrad = maxrad
+        self.alpha = alpha
 
     @staticmethod
     def createFromOverlay(overlay):
-        no = Overlay(overlay.name, overlay.data, overlay.maxrad, overlay.colormap, overlay.interpolation)
+        no = Overlay(overlay.name, overlay.data, overlay.maxrad, overlay.colormap, overlay.interpolation, overlay.alpha)
         return no
 
     @staticmethod
@@ -242,6 +244,7 @@ class ImageViewer(QLabel):
         self.overlay_colormap = "viridis"
         self.overlay_interpolation = "linear"
         self.overlay_maxrad = None
+        self.overlay_alpha = None
         self.overlay_defaults = None
 
     def setOverlayDefaults(self):
@@ -254,6 +257,7 @@ class ImageViewer(QLabel):
         self.overlay_colormap = overlay.colormap
         self.overlay_interpolation = overlay.interpolation
         self.overlay_maxrad = overlay.maxrad
+        self.overlay_alpha = overlay.alpha
 
     def setOverlayByName(self, name):
         o = Overlay.findItemByName(self.overlays, name)
@@ -262,9 +266,13 @@ class ImageViewer(QLabel):
         self.makeOverlayCurrent(o)
 
 
+    def getOverlayByName(self, name):
+        o = Overlay.findItemByName(self.overlays, name)
+        return o
+
     def saveCurrentOverlay(self):
         name = self.overlay_name
-        no = Overlay(name, self.overlay_data, self.overlay_maxrad, self.overlay_colormap, self.overlay_interpolation)
+        no = Overlay(name, self.overlay_data, self.overlay_maxrad, self.overlay_colormap, self.overlay_interpolation, self.overlay_alpha)
         index = Overlay.findIndexByName(self.overlays, name)
         if index < 0:
             self.overlays.append(no)
@@ -967,6 +975,13 @@ class ImageViewer(QLabel):
         # return outl,outn
         return outl
 
+    def xformXY(self, rad, theta):
+        x = rad*np.cos(theta)
+        y = rad*np.sin(theta)
+        xy = np.stack((x,y), axis=2)
+        print(x.shape, y.shape, xy.shape)
+        return xy
+
     def computeGrad(self, arr):
         decimation = self.decimation
         oldshape = arr.shape
@@ -1359,6 +1374,61 @@ class ImageViewer(QLabel):
 
         self.setOverlayByName("theta1")
 
+        rad = self.createRadiusArray()
+        theta = self.createThetaArray()
+
+        src = self.xformXY(rad, theta)
+
+        self.overlay_data = src[:,:,0]
+        self.overlay_name = "src x"
+        self.overlay_colormap = "tab20"
+        self.overlay_interpolation = "nearest"
+        self.overlay_maxrad = self.umb_maxrad
+        self.saveCurrentOverlay()
+        self.overlay_data = src[:,:,1]
+        self.overlay_name = "src y"
+        self.saveCurrentOverlay()
+
+        dest = self.xformXY(rad1, theta1)
+
+        self.overlay_data = dest[:,:,0]
+        self.overlay_name = "dest x"
+        self.overlay_colormap = "tab20"
+        self.overlay_interpolation = "nearest"
+        self.overlay_maxrad = self.umb_maxrad
+        self.saveCurrentOverlay()
+        self.overlay_data = dest[:,:,1]
+        self.overlay_name = "dest y"
+        self.saveCurrentOverlay()
+
+        deci = self.decimation
+        deci = 32
+        deci = 128
+        xform = skimage.transform.PiecewiseAffineTransform()
+        srcd = src[::deci, ::deci].reshape(-1,2)
+        srcd += self.umb
+        # srcd = srcd[100:150,100:150]
+        # print(srcd[0])
+        destd = dest[::deci, ::deci].reshape(-1,2)
+        destd += self.umb
+        # print(destd[8])
+        # destd = destd[100:150,100:150]
+        print("estimating", srcd.shape, destd.shape)
+        # xform.estimate(srcd, destd)
+        xform.estimate(destd, srcd)
+        print("warping")
+        oim = skimage.transform.warp(self.image, xform, output_shape=self.image.shape)
+
+        self.overlay_data = oim
+        self.overlay_name = "warped"
+        self.overlay_colormap = "viridis"
+        self.overlay_interpolation = "linear"
+        self.overlay_maxrad = 1.
+        self.overlay_alpha = 1.
+        self.saveCurrentOverlay()
+        # o = self.getOverlayByName("warped")
+        # o.alpha = 1.
+
     # input: 2D float array, range 0.0 to 1.0
     # output: RGB array, uint8, with colors determined by the
     # colormap and alpha, zoomed in based on the current
@@ -1416,6 +1486,8 @@ class ImageViewer(QLabel):
         self.setStatusTextFromMousePosition()
         main_alpha = .4
         total_alpha = .8
+        if self.overlay_alpha is not None:
+            main_alpha = 0.
 
         # print(self.image.shape, self.image.min(), self.image.max())
         outrgb = self.dataToZoomedRGB(self.image, alpha=main_alpha)
@@ -1427,7 +1499,8 @@ class ImageViewer(QLabel):
             other_data = self.overlay_data / self.overlay_maxrad
             # print("maxrad", self.overlay_maxrad)
         if other_data is not None:
-            outrgb += self.dataToZoomedRGB(other_data, alpha=total_alpha-main_alpha, colormap=self.overlay_colormap, interpolation=self.overlay_interpolation)
+            oalpha = total_alpha-main_alpha
+            outrgb += self.dataToZoomedRGB(other_data, alpha=oalpha, colormap=self.overlay_colormap, interpolation=self.overlay_interpolation)
 
         ww = self.width()
         wh = self.height()
