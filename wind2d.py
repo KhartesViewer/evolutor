@@ -3,6 +3,7 @@ import argparse
 import os
 import pathlib
 import math
+import datetime
 import csv
 from scipy import sparse
 import nrrd
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         tifname = pathlib.Path(parsed_args.input_tif)
         cache_dir = parsed_args.cache_dir
         umbstr = parsed_args.umbilicus
+        self.viewer.diagnostics = parsed_args.diagnostics
         window_width = parsed_args.window
         decimation = parsed_args.decimation
         self.viewer.decimation = decimation
@@ -127,18 +129,21 @@ class MainWindow(QMainWindow):
             print("computing/loading structural tensors")
             self.st.loadOrCreateEigens(nrrdname)
 
-        mask = self.viewer.createMask()
+        # mask = self.viewer.createMask()
 
         self.viewer.setOverlayDefaults()
         self.viewer.saveCurrentOverlay()
         self.viewer.overlay_name = "coherence"
         self.viewer.overlay_data = self.st.coherence.copy()
-        self.viewer.overlay_data *= mask
+        # self.viewer.overlay_data *= mask
         self.viewer.overlay_colormap = "viridis"
         self.viewer.overlay_interpolation = "linear"
         self.viewer.overlay_maxrad = 1.0
         self.viewer.saveCurrentOverlay()
         self.viewer.getNextOverlay()
+        self.timestr = datetime.datetime.now().isoformat()
+        print("timestamp", self.timestr)
+        self.setWindowTitle("wind2d  "+self.timestr)
 
     @staticmethod
     def readUmbilicus(fpath):
@@ -233,7 +238,6 @@ class ImageViewer(QLabel):
         self.overlays = []
         self.overlay_data = None
         self.overlay_name = ""
-        # self.sparse_u_cross_grad = None
         self.decimation = 1
         self.overlay_colormap = "viridis"
         self.overlay_interpolation = "linear"
@@ -647,12 +651,12 @@ class ImageViewer(QLabel):
         # float32 is not precise enough for carrying indices of large
         # flat matrices, so use default (float64)
         diag3 = np.stack((n1d_flat, n1d_flat, np.zeros(n1d_flat.shape)), axis=1)
-        print("diag3", diag3.shape, diag3.dtype)
+        # print("diag3", diag3.shape, diag3.dtype)
         # clean up memory
         n1d_flat = None
 
         vec2d_flat = vec2d[:nr, :nc].reshape(-1, 2)
-        print("vec2d_flat", vec2d_flat.shape)
+        # print("vec2d_flat", vec2d_flat.shape)
 
         dx0 = diag3.copy()
 
@@ -666,7 +670,7 @@ class ImageViewer(QLabel):
             dx1[:,2] = vec2d_flat[:,0]
 
         ddx = np.concatenate((dx0, dx1), axis=0)
-        print("ddx", ddx.shape, ddx.dtype)
+        # print("ddx", ddx.shape, ddx.dtype)
 
         # clean up memory
         dx0 = None
@@ -685,21 +689,21 @@ class ImageViewer(QLabel):
             dy1[:,2] = vec2d_flat[:,1]
 
         ddy = np.concatenate((dy0, dy1), axis=0)
-        print("ddy", ddy.shape, ddy.dtype)
+        # print("ddy", ddy.shape, ddy.dtype)
 
         # clean up memory
         dy0 = None
         dy1 = None
 
-        print("ddx,ddy", ddx.max(axis=0), ddy.max(axis=0))
+        # print("ddx,ddy", ddx.max(axis=0), ddy.max(axis=0))
 
         uxg = np.concatenate((ddx, ddy), axis=0)
-        print("uxg", uxg.shape, uxg.dtype, uxg[:,0].max(), uxg[:,1].max())
+        # print("uxg", uxg.shape, uxg.dtype, uxg[:,0].max(), uxg[:,1].max())
         ddx = None
         ddy = None
         sparse_uxg = sparse.coo_array((uxg[:,2], (uxg[:,0], uxg[:,1])), shape=(nrf*ncf, nrf*ncf))
         # sparse_uxg = sparse.csc_array((uxg[:,2], (uxg[:,0], uxg[:,1])), shape=(nrf*ncf, nrf*ncf))
-        print("sparse_uxg", sparse_uxg.shape, sparse_uxg.dtype)
+        # print("sparse_uxg", sparse_uxg.shape, sparse_uxg.dtype)
         return sparse_uxg
 
 
@@ -708,7 +712,6 @@ class ImageViewer(QLabel):
         nrf, ncf = shape
         ix = np.arange(nrf*ncf)
         ones = np.full((nrf*ncf), 1.)
-        # diag3 = np.stack((ix, ix, ones()), axis=1)
         sparse_diag = sparse.coo_array((ones, (ix, ix)), shape=(nrf*ncf, nrf*ncf))
         return sparse_diag
 
@@ -794,7 +797,7 @@ class ImageViewer(QLabel):
             ddyg[:,0] += 1
 
             grad = np.concatenate((ddxg, ddyg), axis=0)
-            print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
+            # print("grad", grad.shape, grad.min(axis=0), grad.max(axis=0), grad.dtype)
             sparse_grad = sparse.coo_array((grad[:,2], (grad[:,0], grad[:,1])), shape=(2*nrf*ncf, nrf*ncf))
             return sparse_grad
         else:
@@ -819,6 +822,7 @@ class ImageViewer(QLabel):
     def solveRadius0(self, basew, smoothing_weight):
         st = self.main_window.st
         decimation = self.decimation
+        print("rad0 smoothing", smoothing_weight)
         print("decimation", decimation)
 
         vecu = st.vector_u
@@ -834,14 +838,14 @@ class ImageViewer(QLabel):
         sparse_u_cross_grad = sparse.vstack((sparse_uxg, smoothing_weight*sparse_grad, sparse_umb))
 
         A = sparse_u_cross_grad
-        print("A", A.shape, A.dtype)
+        # print("A", A.shape, A.dtype)
 
         b = -sparse_u_cross_grad @ basew.flatten()
         b[basew.size:] = 0.
         x = self.solveAxEqb(A, b)
         out = x.reshape(basew.shape)
         out += basew
-        print("out", out.shape, out.min(), out.max())
+        # print("out", out.shape, out.min(), out.max())
         if decimation > 1:
             out = cv2.resize(out, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_LINEAR)
         return out
@@ -849,13 +853,13 @@ class ImageViewer(QLabel):
 
     def solveRadius1(self, rad0, smoothing_weight, cross_weight):
         st = self.main_window.st
+        print("rad1 smoothing", smoothing_weight, "cross_weight", cross_weight)
         decimation = self.decimation
-        print("decimation", decimation)
+        # print("decimation", decimation)
 
         icw = 1.-cross_weight
 
         uvec = st.vector_u
-        # coh = st.coherence[:,:,np.newaxis]
         coh = st.coherence.copy()
 
         # TODO: for testing
@@ -878,67 +882,47 @@ class ImageViewer(QLabel):
         hxx = sgx.transpose() @ sgx
         hyy = sgy.transpose() @ sgy
         hxy = sgx @ sgy
-        print("sgx", sgx.shape, "hxx", hxx.shape, "hxy", hxy.shape)
-
-        '''
-        sgcsr = sparse_grad.tocsr()
-        sg0 = sgcsr[0::2, 0]
-        sg1 = sgcsr[1::2, 0]
-        print("sg0", sg0.shape)
-        print("sg1", sg1.shape)
-        sg2 = scipy.sparse.vstack((sg0, sg1))
-        print("sg2", sg2.shape)
-        '''
-
-
-        # sparse_hess = sparse_grad @ sparse_grad.transpose()
-        # sparse_hess = sparse_hess.reshape(-1,sparse_grad.shape[1])
+        # print("sgx", sgx.shape, "hxx", hxx.shape, "hxy", hxy.shape)
 
         # print("grad", sparse_grad.shape, "hess", sparse_hess.shape)
         sparse_umb = ImageViewer.sparseUmbilical(shape, np.array(self.umb)/decimation)
         # sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
         # sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*hxx, smoothing_weight*hyy, smoothing_weight*hxy, sparse_umb))
         sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*hxx, smoothing_weight*hyy, sparse_umb))
-        ## sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_hess, sparse_umb))
 
         A = sparse_all
-        print("A", A.shape, A.dtype)
+        # print("A", A.shape, A.dtype)
 
-        # b[rad0.size:] = 0.
         b = np.zeros((A.shape[0]), dtype=np.float64)
         # NOTE multiplication by decimation factor
         b[:rad0.size] = 1.*coh.flatten()*decimation*icw
         x = self.solveAxEqb(A, b)
         out = x.reshape(rad0.shape)
-        print("out", out.shape, out.min(), out.max())
+        # print("out", out.shape, out.min(), out.max())
         if decimation > 1:
             out = cv2.resize(out, (uvec.shape[1], uvec.shape[0]), interpolation=cv2.INTER_LINEAR)
         return out
 
-    def solveThetaNew(self, rad, uvec, coh, dot_weight, smoothing_weight, theta_weight):
+    def solveTheta(self, rad, uvec, coh, dot_weight, smoothing_weight, theta_weight):
+        print("theta dot_weight", dot_weight, "smoothing", smoothing_weight, "theta_weight", theta_weight)
         st = self.main_window.st
         decimation = self.decimation
-        print("decimation", decimation)
+        # print("decimation", decimation)
 
         theta = self.createThetaArray()
         oldshape = rad.shape
-        # uvec = st.vector_u
-        # coh = st.coherence.copy()
-        # uvec, coh = self.synthesizeUVecArray(rad)
+        coh = coh[:,:,np.newaxis]
+        weight = coh.copy()
         # TODO: for testing only!
         # mask = self.createMask()
         # coh *= mask
-        coh = coh[:,:,np.newaxis]
-        weight = coh.copy()
         # weight = coh*coh*coh
         # weight[:,:] = 1.
         wuvec = weight*uvec
         rwuvec = rad[:,:,np.newaxis]*wuvec
         if decimation > 1:
-            # rwuvec = rwuvec[::decimation, ::decimation, :]
             wuvec = wuvec[::decimation, ::decimation, :]
             theta = theta[::decimation, ::decimation]
-            # coh = coh.copy()[::decimation, ::decimation, :]
             weight = weight[::decimation, ::decimation, :]
             # Note that rad is divided by decimation
             rad = rad.copy()[::decimation, ::decimation] / decimation
@@ -946,13 +930,11 @@ class ImageViewer(QLabel):
             rwuvec = rad[:,:,np.newaxis]*wuvec
         shape = theta.shape
         sparse_grad = ImageViewer.sparseGrad(shape, rad)
-        # sparse_grad = rad[:,:,np.newaxis]*ImageViewer.sparseGrad(shape)
-        # sparse_grad = np.vstack((rad,rad)).flatten()*ImageViewer.sparseGrad(shape)
         sparse_u_cross_g = ImageViewer.sparseVecOpGrad(rwuvec, is_cross=True)
         sparse_u_dot_g = ImageViewer.sparseVecOpGrad(rwuvec, is_cross=False)
         sparse_theta = ImageViewer.sparseDiagonal(shape)
         sparse_all = sparse.vstack((sparse_u_cross_g, dot_weight*sparse_u_dot_g, smoothing_weight*sparse_grad, theta_weight*sparse_theta))
-        print("sparse_all", sparse_all.shape)
+        # print("sparse_all", sparse_all.shape)
 
         umb = np.array(self.umb)
         decimated_umb = umb/decimation
@@ -961,7 +943,6 @@ class ImageViewer(QLabel):
         bc_rad = rad[iumb[1], :iumb[0]]
         bc_rwuvec = rwuvec[iumb[1], :iumb[0]]
         bc_dot = 2*np.pi*bc_rwuvec[:,1]
-        # bc_grad = np.full((bc_rwuvec.shape[0]), 2*np.pi)
         bc_grad = 2*np.pi*bc_rad
         bc_cross = 2*np.pi*bc_rwuvec[:,0]
         bc_f0 = shape[1]*iumb[1]
@@ -969,21 +950,17 @@ class ImageViewer(QLabel):
 
         b_dot = np.zeros((sparse_u_dot_g.shape[0]), dtype=np.float64)
         b_dot[bc_f0:bc_f1] += bc_dot.flatten()
-        # b_cross = np.full((sparse_u_cross_g.shape[0]), 1.)
         b_cross = weight.flatten()
         b_cross[bc_f0:bc_f1] += bc_cross.flatten()
         b_grad = np.zeros((sparse_grad.shape[0]), dtype=np.float64)
-        # b_grad[2*bc_f0+1:2*bc_f1+1:2] += bc_dot.flatten()
         b_grad[2*bc_f0+1:2*bc_f1+1:2] += bc_grad.flatten()
-        # b_grad[2*bc_f0:2*bc_f1:2] += bc_dot.flatten()
-        # b_theta = np.zeros((sparse_theta.shape[0]), dtype=np.float64)
         b_theta = theta.flatten()
         b_all = np.concatenate((b_cross, dot_weight*b_dot, smoothing_weight*b_grad, theta_weight*b_theta))
-        print("b_all", b_all.shape)
+        # print("b_all", b_all.shape)
 
         x = self.solveAxEqb(sparse_all, b_all)
         out = x.reshape(shape)
-        print("out", out.shape, out.min(), out.max())
+        # print("out", out.shape, out.min(), out.max())
         if decimation > 1:
             outl = cv2.resize(out, (uvec.shape[1], uvec.shape[0]), interpolation=cv2.INTER_LINEAR)
             outn = cv2.resize(out, (uvec.shape[1], uvec.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -1008,134 +985,6 @@ class ImageViewer(QLabel):
             grady = cv2.resize(grady, (oldshape[1], oldshape[0]), interpolation=cv2.INTER_LINEAR)
         return gradx, grady
 
-    def solveThetaOld(self, rad, smoothing_weight, cross_weight):
-
-        st = self.main_window.st
-        decimation = self.decimation
-        print("decimation", decimation)
-
-        theta = self.createThetaArray()
-        oldshape = rad.shape
-        uvec = st.vector_u
-        coh = st.coherence[:,:,np.newaxis]
-        icw = 1.-cross_weight
-        wuvec = coh*uvec
-        if decimation > 1:
-            wuvec = wuvec[::decimation, ::decimation, :]
-            theta = theta[::decimation, ::decimation]
-            # Note that rad is divided by decimation
-            rad = rad.copy()[::decimation, ::decimation] / decimation
-        shape = theta.shape
-        sparse_grad = ImageViewer.sparseGrad(shape)
-        # sparse_u_cross_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=True)
-        # sparse_u_dot_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=False)
-        rwuvec = rad[:,:,np.newaxis]*wuvec
-        sparse_u_cross_g = ImageViewer.sparseVecOpGrad(rwuvec, is_cross=True)
-        sparse_u_dot_g = ImageViewer.sparseVecOpGrad(rwuvec, is_cross=False)
-        umb = np.array(self.umb)
-        umb_east = umb + (100,0)
-        decimated_umb_east = umb_east/decimation
-        decimated_umb = umb/decimation
-        sparse_umb = ImageViewer.sparseUmbilical(shape, decimated_umb_east)
-        sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
-        print("sparse_all", sparse_all.shape)
-        iumb = decimated_umb.astype(np.int32)
-        # bc: branch cut
-        bc_rad = rad[iumb[1], :iumb[0]]
-        bc_wuvec = wuvec[iumb[1], :iumb[0]]
-        bc_dot = 2*np.pi*bc_rad*bc_wuvec[:,1]
-        bc_grad = np.full((bc_rad.shape[0]), 2*np.pi)
-        # bc_grad = 2*np.pi*bc_rad
-        bc_cross = -2*np.pi*bc_rad*bc_wuvec[:,0]
-        bc_f0 = rad.shape[1]*iumb[1]
-        bc_f1 = bc_f0 + iumb[0]
-
-        b_dot = np.zeros((sparse_u_dot_g.shape[0]), dtype=np.float64)
-        b_dot[bc_f0:bc_f1] += bc_dot.flatten()
-        b_cross = np.full((sparse_u_cross_g.shape[0]), 1.)
-        b_cross[bc_f0:bc_f1] += bc_cross.flatten()
-        b_grad = np.zeros((sparse_grad.shape[0]), dtype=np.float64)
-        # b_grad[2*bc_f0+1:2*bc_f1+1:2] += bc_dot.flatten()
-        b_grad[2*bc_f0+1:2*bc_f1+1:2] += bc_grad.flatten()
-        # b_grad[2*bc_f0:2*bc_f1:2] += bc_dot.flatten()
-        b_umb = np.zeros((sparse_umb.shape[0]), dtype=np.float64)
-        b_all = np.concatenate((icw*b_dot, cross_weight*b_cross, smoothing_weight*b_grad, b_umb))
-        print("b_all", b_all.shape)
-
-        x = self.solveAxEqb(sparse_all, b_all)
-        out = x.reshape(rad.shape)
-        print("out", out.shape, out.min(), out.max())
-        if decimation > 1:
-            out = cv2.resize(out, (uvec.shape[1], uvec.shape[0]), interpolation=cv2.INTER_LINEAR)
-        return out
-
-        '''
-        dtheta_flat = sparse_grad @ theta.flatten()
-        dtheta = dtheta_flat.reshape(shape[0], shape[1], 2)
-        dtheta *=  rad[:,:,np.newaxis]
-        dthetay = dtheta[:,:,1]
-        dthetax = dtheta[:,:,0]
-        # out = np.sqrt((dtheta*dtheta).sum(axis=2))
-        out = dthetax
-        '''
-        '''
-        # dtheta_flat = rad.flatten()*(sparse_u_cross_g @ theta.flatten())
-        # dtheta_flat[bc_f0:bc_f1] -= bc_cross.flatten()
-        dtheta_flat = rad.flatten()*(sparse_u_dot_g @ theta.flatten())
-        dtheta_flat[bc_f0:bc_f1] -= bc_dot.flatten()
-        dtheta = dtheta_flat.reshape(shape[0], shape[1])
-        # print("bcr", bc_cross[120])
-        # print("dtheta", dtheta[iumb[1], 120], dtheta[iumb[1]+1, 120], dtheta[iumb[1]-1, 120])
-        # ixy = iumb + (-50, +30)
-        # ixyo = iumb + (+50, +30)
-        # print("dtheta")
-        # self.printArray(dtheta, ixy)
-        # self.printArray(dtheta, ixyo)
-        # print("rad")
-        # self.printArray(rad, ixy)
-        # self.printArray(rad, ixyo)
-        # print("theta")
-        # self.printArray(theta, ixy)
-        # self.printArray(theta, ixyo)
-        # print("wuvec")
-        # self.printArray(wuvec, ixy)
-        # self.printArray(wuvec, ixyo)
-        # out = dtheta + 1.0
-        out = dtheta
-        '''
-
-        '''
-        if decimation > 1:
-            out = cv2.resize(out, (oldshape[1], oldshape[0]), interpolation=cv2.INTER_LINEAR)
-        print("out", out.min(), out.max())
-        return out
-        '''
-
-
-        '''
-        icw = 1.-cross_weight
-
-        uvec = st.vector_u
-        coh = st.coherence[:,:,np.newaxis]
-        wuvec = coh*uvec
-        if decimation > 1:
-            wuvec = wuvec[::decimation, ::decimation, :]
-            theta = theta[::decimation, ::decimation]
-            coh = coh.copy()[::decimation, ::decimation, :]
-            # Note that rad is divided by decimation
-            rad = rad.copy()[::decimation, ::decimation] / decimation
-        shape = wuvec.shape[:2]
-        sparse_u_cross_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=True)
-        sparse_u_dot_g = ImageViewer.sparseVecOpGrad(wuvec, is_cross=False)
-        sparse_grad = ImageViewer.sparseGrad(shape)
-        sparse_umb = ImageViewer.sparseUmbilical(shape, np.array(self.umb)/decimation)
-        sparse_all = sparse.vstack((icw*sparse_u_dot_g, cross_weight*sparse_u_cross_g, smoothing_weight*sparse_grad, sparse_umb))
-
-        b = np.zeros((A.shape[0]), dtype=np.float64)
-        b[:rad.size] = 1.*coh.flatten()*decimation*icw
-        '''
-        self.saveCurrentOverlay()
-
     def printArray(self, arr, ixy):
         la = arr[ixy[1]:ixy[1]+2, ixy[0]:ixy[0]+2]
         print(la)
@@ -1144,24 +993,18 @@ class ImageViewer(QLabel):
 
     @staticmethod
     def solveAxEqb(A, b):
+        print("solving Ax = b", A.shape, b.shape)
         At = A.transpose()
         AtA = At @ A
-        print("AtA", AtA.shape, sparse.issparse(AtA))
+        # print("AtA", AtA.shape, sparse.issparse(AtA))
         # print("ata", ata.shape, ata.dtype, ata[ata!=0], np.argwhere(ata))
-        '''
-        ssum = AtA.sum(axis=0)
-        ssumb = np.abs(ssum)>2.e-10
-        # ssum = np.argwhere(np.abs(ssum)>1.e-10)
-        print("ssum", np.argwhere(ssumb))
-        print(ssum[ssumb])
-        '''
         asum = np.abs(AtA).sum(axis=0)
-        print("asum", np.argwhere(asum==0))
+        # print("asum", np.argwhere(asum==0))
         Atb = At @ b
-        print("Atb", Atb.shape, sparse.issparse(Atb))
+        # print("Atb", Atb.shape, sparse.issparse(Atb))
 
         lu = sparse.linalg.splu(AtA.tocsc())
-        print("lu created")
+        # print("lu created")
         x = lu.solve(Atb)
         print("x", x.shape, x.dtype, x.min(), x.max())
         return x
@@ -1236,11 +1079,11 @@ class ImageViewer(QLabel):
         umb = self.umb
         im = self.image
         iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
-        print("mg", ixs.shape, iys.shape)
+        # print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
         radsq = (ixs-umb[0])*(ixs-umb[0])+(iys-umb[1])*(iys-umb[1])
         rad = np.sqrt(radsq)
-        print("rad", rad.shape)
+        # print("rad", rad.shape)
         return rad
 
     def createThetaArray(self):
@@ -1248,37 +1091,34 @@ class ImageViewer(QLabel):
         umb[1] += .5
         im = self.image
         iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
-        print("mg", ixs.shape, iys.shape)
+        # print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
-        # radsq = (ixs-umb[0])*(ixs-umb[0])+(iys-umb[1])*(iys-umb[1])
         theta = np.arctan2(iys-umb[1], ixs-umb[0])
-        print("theta", theta.shape, theta.min(), theta.max())
+        # print("theta", theta.shape, theta.min(), theta.max())
         return theta
 
     def synthesizeUVecArray(self, rad):
         gradx, grady = self.computeGrad(rad)
         uvec = np.stack((gradx, grady), axis=2)
-        print("suvec", uvec.shape)
-        # luvec = np.sqrt((uvec*uvec).sum(axis=2))[:,:,np.newaxis]
+        # print("suvec", uvec.shape)
         luvec = np.sqrt((uvec*uvec).sum(axis=2))
         lnz = luvec != 0
-        print("ll", uvec.shape, luvec.shape, lnz.shape)
+        # print("ll", uvec.shape, luvec.shape, lnz.shape)
         uvec[lnz] /= luvec[lnz][:,np.newaxis]
         coh = np.full(rad.shape, 1.)
         coh[:,-1] = 0
         coh[-1,:] = 0
-        # coh[rad < 100] = 0
         return uvec, coh
 
     def createERadiusArray(self, ecc):
         umb = self.umb
         im = self.image
         iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
-        print("mg", ixs.shape, iys.shape)
+        # print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
         radsq = (ixs-umb[0])*(ixs-umb[0])+(iys-umb[1])*(iys-umb[1])/(ecc*ecc)
         rad = np.sqrt(radsq)
-        print("rad", rad.shape)
+        # print("rad", rad.shape)
         return rad
 
     def createEThetaArray(self, ecc):
@@ -1295,7 +1135,7 @@ class ImageViewer(QLabel):
         # print("lsum", lsum.shape, lsum[0], lsum[-1])
         tlen = lsum[-1]
         # print("tlen", tlen)
-        print("r factor", tlen/(2*np.pi))
+        # print("r factor", tlen/(2*np.pi))
         lsum /= tlen
         lsum = (2*lsum-1.)*np.pi
         lsum[0] -= .000001
@@ -1309,9 +1149,7 @@ class ImageViewer(QLabel):
         iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
         # print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
-        # radsq = (ixs-umb[0])*(ixs-umb[0])+(iys-umb[1])*(iys-umb[1])
         ctheta = np.arctan2((iys-umb[1])/ecc, ixs-umb[0])
-        # etheta = np.interp(ctheta, eth, cth)
         etheta = np.interp(ctheta, cth, eth)
         return etheta
 
@@ -1345,10 +1183,8 @@ class ImageViewer(QLabel):
         if im is None:
             return
 
-
         rad = self.createRadiusArray()
 
-        # smoothing_weight = .01
         smoothing_weight = .1
         rad0 = self.loadOrCreateArray(
                 "_r0", lambda: self.solveRadius0(rad, smoothing_weight))
@@ -1367,30 +1203,14 @@ class ImageViewer(QLabel):
         self.overlay_maxrad = self.umb_maxrad
         self.saveCurrentOverlay()
 
-        # TODO: for testing
-        # self.overlay_data = rad0
-        # return
-
-        # smoothing_weight = .01
         # hess
-        # smoothing_weight = .1
         smoothing_weight = .2
-        # smoothing_weight = .0001
         # grad
         # smoothing_weight = .01
         cross_weight = 0.95
-        # cross_weight = 0.99
-        # cross_weight = 0.75
-        # cross_weight = 0.95
-        # smoothing_weight = .05
-        # cross_weight = 0.75
         rad1 = self.loadOrCreateArray(
                 "_r1", lambda: self.solveRadius1(rad0, smoothing_weight, cross_weight))
 
-        # TODO: For testing!
-        # rad1 *= 2.5
-        # rad1 *= 1.4
-        # rad1 *= 1.2
         # TODO: For testing!
         # ecc = .5
         # rad1 = self.createERadiusArray(ecc)
@@ -1417,102 +1237,35 @@ class ImageViewer(QLabel):
         self.overlay_maxrad = self.umb_maxrad
         self.saveCurrentOverlay()
 
-        gradx, grady = self.computeGrad(rad1)
-        # grad = np.sqrt(gradx*gradx+grady*grady)
-        # st = self.main_window.st
-        # uvec = st.vector_u
-        gdu = gradx*uvec[:,:,0] + grady*uvec[:,:,1]
-        self.overlay_name = "rad1 gdu"
-        self.overlay_data = gdu
-        self.overlay_maxrad = 2.
-        self.overlay_colormap = "hsv"
-        self.overlay_interpolation = "linear"
-        self.saveCurrentOverlay()
+        if self.diagnostics:
+            gradx, grady = self.computeGrad(rad1)
+            gdu = gradx*uvec[:,:,0] + grady*uvec[:,:,1]
+            self.overlay_name = "rad1 gdu"
+            self.overlay_data = gdu
+            self.overlay_maxrad = 4.
+            self.overlay_colormap = "hsv"
+            self.overlay_interpolation = "linear"
+            self.saveCurrentOverlay()
 
         self.setOverlayByName("rad1")
-        # return
 
-        # suvec, scoh = self.synthesizeUVecArray(rad1)
-
-        # TODO: for testing
-        # self.overlay_data = rad1
-        # return
-
-        '''
-        # theta0 = self.createThetaArray()
-        cross_weight = 0.2
-        # cross_weight = 0.5
-        smoothing_weight = .01
-        # theta0 = self.solveThetaOld(rad, smoothing_weight, cross_weight)
-        '''
-
-        '''
-        # dot_weight = 4
-        # dot_weight = 2
-        # dot_weight = .5
-        # dot_weight = 1
-        dot_weight = .1
         dot_weight = .001
-        dot_weight = .01
-        dot_weight = .1
-        dot_weight = .3
-        dot_weight = .6
-        theta_weight = .001
-        dot_weight = .01
-        smoothing_weight = .001
-        theta_weight = .001
-
-        # sort of symmetric:
-        dot_weight = .6
-        theta_weight = .001
-        smoothing_weight = .001
-
-        dot_weight = .01
-        smoothing_weight = .5
-
-        # theta_weight = .1
-        # theta_weight = .0
-        # smoothing_weight = .01
-        # smoothing_weight = 0.0001
-        # smoothing_weight = .001
-        '''
-
-        # dot_weight = .1
-        # smoothing_weight = .001
-        dot_weight = .001
-        smoothing_weight = .1
-        # smoothing_weight = .5
-        # smoothing_weight = .6
         smoothing_weight = .4
-        # smoothing_weight = .3
         theta_weight = .0001
-        # TODO: testing
-        # slice 2000
-        # rad1 *= 1.8
-        # slice 3000
-        # rad1 *= 2.8
 
-
-        # rad1 *= 1.3
-        # rad1 *= 1.5
+        # testing
         # ecc = .5
         # rad1 = self.createERadiusArray(ecc)
         # r factor
         # rad1 *= .7709
 
-        # theta0 = self.solveThetaNew(rad1, dot_weight, smoothing_weight, theta_weight)
-
-        # th0uvec, th0coh = uvec, coh
         th0uvec, th0coh = self.synthesizeUVecArray(rad1)
-        # coh[:,:] = 1.
-        ''''''
-        # theta0,theta0nearest = self.loadOrCreateArray(
+
         theta0 = self.loadOrCreateArray(
-                  "_th0", lambda: self.solveThetaNew(rad1, th0uvec, th0coh, dot_weight, smoothing_weight, theta_weight))
-        ''''''
-        # theta0 *= 10
+                  "_th0", lambda: self.solveTheta(rad1, th0uvec, th0coh, dot_weight, smoothing_weight, theta_weight))
 
         '''
+        # testing
         ecc = .5
         theta0 = self.createEThetaArray(ecc)
         rad1 = self.createERadiusArray(ecc)
@@ -1522,58 +1275,50 @@ class ImageViewer(QLabel):
         o.data = rad1
         '''
 
-
-        # self.overlay_data = theta0nearest
         self.overlay_data = theta0
         self.overlay_name = "theta0"
         self.overlay_colormap = "tab20"
         self.overlay_interpolation = "nearest"
         self.overlay_maxrad = 3.
         self.saveCurrentOverlay()
-        # rad1 *= 500.
-        # self.overlay_data = rad1
+
         gradx, grady = self.computeGrad(theta0)
         gradx *= rad1
         grady *= rad1
         grad = np.sqrt(gradx*gradx+grady*grady)
-
-        self.overlay_data = gradx
-        self.overlay_name = "rad1 grad theta0 x"
-        # self.overlay_colormap = "tab20"
-        # self.overlay_interpolation = "nearest"
-        self.overlay_colormap = "hsv"
-        self.overlay_interpolation = "linear"
-        self.overlay_maxrad = 2.
-        # self.saveCurrentOverlay()
-        self.overlay_data = grady
-        self.overlay_name = "rad1 grad theta0 y"
-        # self.saveCurrentOverlay()
-        self.overlay_data = grad
-        self.overlay_name = "rad1 grad theta0"
-        self.overlay_colormap = "hsv"
-        self.overlay_interpolation = "linear"
-        # self.saveCurrentOverlay()
-
-
-        # st = self.main_window.st
-        # uvec = st.vector_u
         gxu = -gradx*th0uvec[:,:,1] + grady*th0uvec[:,:,0]
-        self.overlay_name = "th0 gxu"
-        self.overlay_data = gxu
-        self.overlay_colormap = "hsv"
-        self.overlay_interpolation = "linear"
-        self.saveCurrentOverlay()
+    
+        if self.diagnostics:
+            self.overlay_data = gradx
+            self.overlay_name = "rad1 grad theta0 x"
+            self.overlay_colormap = "hsv"
+            self.overlay_interpolation = "linear"
+            self.overlay_maxrad = 2.
+            # self.saveCurrentOverlay()
+    
+            self.overlay_data = grady
+            self.overlay_name = "rad1 grad theta0 y"
+            # self.saveCurrentOverlay()
+    
+            self.overlay_data = grad
+            self.overlay_name = "rad1 grad theta0"
+            self.overlay_colormap = "hsv"
+            self.overlay_interpolation = "linear"
+            # self.saveCurrentOverlay()
+    
+            self.overlay_name = "th0 gxu"
+            self.overlay_data = gxu
+            self.overlay_colormap = "hsv"
+            self.overlay_interpolation = "linear"
+            self.saveCurrentOverlay()
+    
+            gdu = gradx*th0uvec[:,:,0] + grady*th0uvec[:,:,1]
+            self.overlay_name = "th0 gdu"
+            self.overlay_data = gdu
+            self.overlay_colormap = "hsv"
+            self.overlay_interpolation = "linear"
+            # self.saveCurrentOverlay()
 
-        # st = self.main_window.st
-        # uvec = st.vector_u
-        gdu = gradx*th0uvec[:,:,0] + grady*th0uvec[:,:,1]
-        self.overlay_name = "th0 gdu"
-        self.overlay_data = gdu
-        self.overlay_colormap = "hsv"
-        self.overlay_interpolation = "linear"
-        # self.saveCurrentOverlay()
-
-        # stcoh = st.coherence
         cargs = np.argsort(coh.flatten())
         min_coh = coh.flatten()[cargs[len(cargs)//4]]
         rargs = np.argsort(rad1.flatten())
@@ -1582,16 +1327,12 @@ class ImageViewer(QLabel):
         crb = np.logical_and(coh > min_coh, rad1 < max_rad1)
         mgxu = np.median(gxu[crb])
 
-        # uargs = args[:len(args)//4]
-        # cgxus = gxu.flatten()[uargs]
-        # mgxu = np.median(cgxus)
         print("mgxu", mgxu)
 
         rad1 /= mgxu
-        # smoothing_weight = .6
 
         theta1 = self.loadOrCreateArray(
-                  "_th1", lambda: self.solveThetaNew(rad1, th0uvec, th0coh, dot_weight, smoothing_weight, theta_weight))
+                  "_th1", lambda: self.solveTheta(rad1, th0uvec, th0coh, dot_weight, smoothing_weight, theta_weight))
 
         self.overlay_data = theta1
         self.overlay_name = "theta1"
@@ -1604,15 +1345,15 @@ class ImageViewer(QLabel):
         gradx *= rad1
         grady *= rad1
         gxu = -gradx*th0uvec[:,:,1] + grady*th0uvec[:,:,0]
-        self.overlay_name = "th1 gxu"
-        self.overlay_data = gxu
-        self.overlay_colormap = "hsv"
-        self.overlay_maxrad = 2.
-        self.overlay_interpolation = "linear"
-        self.saveCurrentOverlay()
 
-        # cgxus = gxu.flatten()[uargs]
-        # mgxu = np.median(cgxus)
+        if self.diagnostics:
+            self.overlay_name = "th1 gxu"
+            self.overlay_data = gxu
+            self.overlay_colormap = "hsv"
+            self.overlay_maxrad = 2.
+            self.overlay_interpolation = "linear"
+            self.saveCurrentOverlay()
+
         mgxu = np.median(gxu[crb])
         print("mgxu", mgxu)
 
@@ -1664,9 +1405,7 @@ class ImageViewer(QLabel):
             y1s = int((y1-ay1)/z)
             x2s = int((x2-ax1)/z)
             y2s = int((y2-ay1)/z)
-            # zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_LINEAR)
             zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_NEAREST)
-            # cslc = cm(np.remainder(zslc, 1.))
             cslc = cm(np.remainder(zslc, 1.))
             outrgb[y1:y2, x1:x2, :] = (255*cslc[:,:,:3]*alpha).astype(np.uint8)
         return outrgb
@@ -1813,6 +1552,9 @@ def process_cl_args():
     parser.add_argument("--no_cache",
                         action="store_true",
                         help="Don't use cached structural tensors")
+    parser.add_argument("--diagnostics",
+                        action="store_true",
+                        help="Create diagnostic overlays")
     parser.add_argument("--umbilicus",
                         default=None,
                         help="umbilicus location in x,y, for example 3960,2280")
