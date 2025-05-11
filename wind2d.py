@@ -36,7 +36,30 @@ import numpy as np
 import cmap
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.integrate import solve_ivp
+from skimage.transform import PiecewiseAffineTransform
 import nrrd
+
+# From https://github.com/scikit-image/scikit-image/issues/6864
+class FastPiecewiseAffineTransform(PiecewiseAffineTransform):
+    def __call__(self, coords):
+        print("starting __call__")
+        coords = np.asarray(coords)
+
+        simplex = self._tesselation.find_simplex(coords)
+        print("found simplexes")
+
+        affines = np.array(
+            [self.affines[i].params for i in range(len(self._tesselation.simplices))]
+        )[simplex]
+        print("created affines")
+
+        pts = np.c_[coords, np.ones((coords.shape[0], 1))]
+
+        result = np.einsum("ij,ikj->ik", pts, affines)
+        print("did einsum")
+        result[simplex == -1, :] = -1
+
+        return result
 
 class MainWindow(QMainWindow):
 
@@ -65,6 +88,7 @@ class MainWindow(QMainWindow):
         window_width = parsed_args.window
         decimation = parsed_args.decimation
         self.viewer.decimation = decimation
+        self.viewer.warp_decimation = parsed_args.warp_decimation
         self.viewer.overlay_colormap = parsed_args.colormap
         self.viewer.overlay_interpolation = parsed_args.interpolation
         maxrad = parsed_args.maxrad
@@ -134,6 +158,7 @@ class MainWindow(QMainWindow):
 
         self.viewer.setOverlayDefaults()
         self.viewer.saveCurrentOverlay()
+
         self.viewer.overlay_name = "coherence"
         self.viewer.overlay_data = self.st.coherence.copy()
         # self.viewer.overlay_data *= mask
@@ -141,6 +166,23 @@ class MainWindow(QMainWindow):
         self.viewer.overlay_interpolation = "linear"
         self.viewer.overlay_maxrad = 1.0
         self.viewer.saveCurrentOverlay()
+
+        '''
+        self.viewer.overlay_name = "scaled"
+        # self.viewer.overlay_data = self.st.coherence.copy()
+        # self.viewer.overlay_data *= mask
+        im = self.viewer.image
+        scale = 2.
+        rescaled = cv2.resize(im, (int(scale*im.shape[1]), int(scale*im.shape[0])), interpolation=cv2.INTER_LINEAR)
+        self.viewer.overlay_data = rescaled
+        self.viewer.overlay_colormap = "gray"
+        self.viewer.overlay_interpolation = "linear"
+        self.viewer.overlay_maxrad = 1.0
+        self.viewer.overlay_alpha = 1.0
+        self.viewer.overlay_scale = scale
+        self.viewer.saveCurrentOverlay()
+        '''
+
         self.viewer.getNextOverlay()
         self.timestr = datetime.datetime.now().isoformat()
         print("timestamp", self.timestr)
@@ -179,13 +221,14 @@ class MainWindow(QMainWindow):
         self.viewer.keyPressEvent(e)
 
 class Overlay():
-    def __init__(self, name, data, maxrad, colormap="viridis", interpolation="linear", alpha=None):
+    def __init__(self, name, data, maxrad, colormap="viridis", interpolation="linear", alpha=None, scale=None):
         self.name = name
         self.data = data
         self.colormap = colormap
         self.interpolation = interpolation
         self.maxrad = maxrad
         self.alpha = alpha
+        self.scale = scale
 
     @staticmethod
     def createFromOverlay(overlay):
@@ -236,6 +279,7 @@ class ImageViewer(QLabel):
         self.center_start_point = None
         self.is_panning = False
         self.dip_bars_visible = True
+        self.warp_dots_visible = True
         self.umb = None
         self.overlays = []
         self.overlay_data = None
@@ -245,7 +289,10 @@ class ImageViewer(QLabel):
         self.overlay_interpolation = "linear"
         self.overlay_maxrad = None
         self.overlay_alpha = None
+        self.overlay_scale = None
         self.overlay_defaults = None
+        self.src_dots = None
+        self.dest_dots = None
 
     def setOverlayDefaults(self):
         self.overlay_defaults = Overlay("", None, self.overlay_maxrad, self.overlay_colormap, self.overlay_interpolation)
@@ -258,6 +305,7 @@ class ImageViewer(QLabel):
         self.overlay_interpolation = overlay.interpolation
         self.overlay_maxrad = overlay.maxrad
         self.overlay_alpha = overlay.alpha
+        self.overlay_scale = overlay.scale
 
     def setOverlayByName(self, name):
         o = Overlay.findItemByName(self.overlays, name)
@@ -272,7 +320,7 @@ class ImageViewer(QLabel):
 
     def saveCurrentOverlay(self):
         name = self.overlay_name
-        no = Overlay(name, self.overlay_data, self.overlay_maxrad, self.overlay_colormap, self.overlay_interpolation, self.overlay_alpha)
+        no = Overlay(name, self.overlay_data, self.overlay_maxrad, self.overlay_colormap, self.overlay_interpolation, self.overlay_alpha, self.overlay_scale)
         index = Overlay.findIndexByName(self.overlays, name)
         if index < 0:
             self.overlays.append(no)
@@ -478,7 +526,10 @@ class ImageViewer(QLabel):
             self.umb = np.array(ixy)
             self.drawAll()
         elif e.key() == Qt.Key_V:
-            self.dip_bars_visible = not self.dip_bars_visible
+            if e.modifiers() & Qt.ShiftModifier:
+                self.warp_dots_visible = not self.warp_dots_visible
+            else:
+                self.dip_bars_visible = not self.dip_bars_visible
             self.drawAll()
         elif e.key() == Qt.Key_Q:
             print("Exiting")
@@ -1379,6 +1430,7 @@ class ImageViewer(QLabel):
 
         src = self.xformXY(rad, theta)
 
+        '''
         self.overlay_data = src[:,:,0]
         self.overlay_name = "src x"
         self.overlay_colormap = "tab20"
@@ -1388,9 +1440,11 @@ class ImageViewer(QLabel):
         self.overlay_data = src[:,:,1]
         self.overlay_name = "src y"
         self.saveCurrentOverlay()
+        '''
 
         dest = self.xformXY(rad1, theta1)
 
+        '''
         self.overlay_data = dest[:,:,0]
         self.overlay_name = "dest x"
         self.overlay_colormap = "tab20"
@@ -1400,47 +1454,114 @@ class ImageViewer(QLabel):
         self.overlay_data = dest[:,:,1]
         self.overlay_name = "dest y"
         self.saveCurrentOverlay()
+        '''
 
-        deci = self.decimation
-        deci = 32
-        deci = 128
-        xform = skimage.transform.PiecewiseAffineTransform()
+        # deci = self.decimation
+        # deci = 32
+        # deci = 128
+        # ndots = 512
+
+        # "fast" and "slow" tested with 
+        # --warp_decimation 32
+        # resize = .75
+        # scale = 2.
+
+        resize = .75
+        scale = 2.
+        ishape = self.image.shape
+        # deci = int(math.sqrt(ishape[0]*ishape[1]/ndots))
+        deci = self.warp_decimation
+        ndots = ishape[0]*ishape[1] / (deci*deci)
+        print("deci", deci, "ndots", ndots)
         srcd = src[::deci, ::deci].reshape(-1,2)
         srcd += self.umb
+        self.src_dots = srcd.copy()
         # srcd = srcd[100:150,100:150]
         # print(srcd[0])
         destd = dest[::deci, ::deci].reshape(-1,2)
+        destd *= resize
         destd += self.umb
+        self.dest_dots = destd.copy()
+        destd *= scale
+        # print(destd[8])
+        # destd = destd[100:150,100:150]
+        '''
+        print("estimating", srcd.shape, destd.shape)
+        # xform.estimate(srcd, destd)
+        xform = skimage.transform.PiecewiseAffineTransform()
+        xform.estimate(destd, srcd)
+        print("warping")
+        oshape = (int(ishape[0]*scale), int(ishape[1]*scale))
+        oim = skimage.transform.warp(self.image, xform, output_shape=oshape)
+        '''
+        '''
+        ndots = 512
+        resize = .75
+        scale = 2.
+        oim = self.loadOrCreateArray(
+                  "_ud", lambda: self.warpImage(rad, theta, rad1, theta1, ndots, resize, scale))
+        '''
+        oim = self.loadOrCreateArray(
+                  "_ud", lambda: self.warpImage(srcd, destd, scale))
+
+        self.overlay_data = oim
+        self.overlay_name = "warped"
+        self.overlay_colormap = "gray"
+        self.overlay_interpolation = "linear"
+        self.overlay_maxrad = 1.
+        self.overlay_alpha = 1.
+        self.overlay_scale = 2.
+        self.saveCurrentOverlay()
+        # o = self.getOverlayByName("warped")
+        # o.alpha = 1.
+
+    def warpImage(self, srcd, destd, scale):
+    # def warpImage(self, rad, theta, rad1, theta1, ndots=512, resize=.75, scale=2.):
+        '''
+        src = self.xformXY(rad, theta)
+        dest = self.xformXY(rad1, theta1)
+        deci = int(math.sqrt(ishape[0]*ishape[1]/ndots))
+        print("deci", deci, "ndots", ndots)
+        srcd = src[::deci, ::deci].reshape(-1,2)
+        srcd += self.umb
+        self.src_dots = srcd.copy()
+        # srcd = srcd[100:150,100:150]
+        # print(srcd[0])
+        destd = dest[::deci, ::deci].reshape(-1,2)
+        destd *= .75
+        destd += self.umb
+        self.dest_dots = destd.copy()
+        scale = 2.
+        destd *= scale
         # print(destd[8])
         # destd = destd[100:150,100:150]
         print("estimating", srcd.shape, destd.shape)
         # xform.estimate(srcd, destd)
+        '''
+        ishape = self.image.shape
+        # xform = PiecewiseAffineTransform()
+        xform = FastPiecewiseAffineTransform()
+        print("estimating")
         xform.estimate(destd, srcd)
         print("warping")
-        oim = skimage.transform.warp(self.image, xform, output_shape=self.image.shape)
-
-        self.overlay_data = oim
-        self.overlay_name = "warped"
-        self.overlay_colormap = "viridis"
-        self.overlay_interpolation = "linear"
-        self.overlay_maxrad = 1.
-        self.overlay_alpha = 1.
-        self.saveCurrentOverlay()
-        # o = self.getOverlayByName("warped")
-        # o.alpha = 1.
+        oshape = (int(ishape[0]*scale), int(ishape[1]*scale))
+        oim = skimage.transform.warp(self.image, xform, output_shape=oshape)
+        return oim
 
     # input: 2D float array, range 0.0 to 1.0
     # output: RGB array, uint8, with colors determined by the
     # colormap and alpha, zoomed in based on the current
     # window size, center, and zoom factor
-    def dataToZoomedRGB(self, data, alpha=1., colormap="gray", interpolation="linear"):
+    def dataToZoomedRGB(self, data, alpha=1., colormap="gray", interpolation="linear", scale=1.):
+        if scale is None:
+            scale = 1.
         if colormap in self.colormaps:
             colormap = self.colormaps[colormap]
         cm = cmap.Colormap(colormap, interpolation=interpolation)
 
         iw = data.shape[1]
         ih = data.shape[0]
-        z = self.zoom
+        z = self.zoom / scale
         # zoomed image width, height:
         ziw = max(int(z*iw), 1)
         zih = max(int(z*ih), 1)
@@ -1452,6 +1573,8 @@ class ImageViewer(QLabel):
         whw = ww//2
         whh = wh//2
         cx,cy = self.center
+        cx *= scale
+        cy *= scale
 
         # Pasting zoomed data slice into viewing-area array, taking
         # panning into account.
@@ -1480,14 +1603,46 @@ class ImageViewer(QLabel):
             outrgb[y1:y2, x1:x2, :] = (255*cslc[:,:,:3]*alpha).astype(np.uint8)
         return outrgb
 
+    def drawPoints(self, ipoints, outrgb):
+        points = self.ixysToWxys(ipoints)
+        points = points.reshape(-1,1,1,2)
+        '''
+        colors = (
+                (255,255,255), (255,0,255), 
+                (255,255,224), (255,0,224), 
+                (255,255,192), (255,0,192), 
+                (255,255,160), (255,0,160), 
+                (255,255,128), (255,0,128), 
+                )
+        colors = (
+                (255,0,255), 
+                (255,64,192), 
+                (255,128,128), 
+                (255,192,64), 
+                (255,255,0), 
+                )
+        color = colors[i%len(colors)]
+        '''
+        color = (255,0,0)
+
+        cv2.polylines(outrgb, points, True, color, 4)
+        # cv2.circle(outrgb, points[0,0,0], 3, (255,0,255), -1)
+
     def drawAll(self):
         if self.image is None:
             return
         self.setStatusTextFromMousePosition()
-        main_alpha = .4
         total_alpha = .8
-        if self.overlay_alpha is not None:
-            main_alpha = 0.
+        if self.overlay_data is None:
+            main_alpha = total_alpha
+            # overlay_alpha = 0.
+        elif self.overlay_alpha is not None:
+            # overlay_alpha = total_alpha*self.overlay_alpha
+            # main_alpha = total_alpha - overlay_alpha
+            main_alpha = total_alpha*(1. - self.overlay_alpha)
+        else:
+            main_alpha = .5*total_alpha
+        overlay_alpha = total_alpha - main_alpha
 
         # print(self.image.shape, self.image.min(), self.image.max())
         outrgb = self.dataToZoomedRGB(self.image, alpha=main_alpha)
@@ -1499,13 +1654,17 @@ class ImageViewer(QLabel):
             other_data = self.overlay_data / self.overlay_maxrad
             # print("maxrad", self.overlay_maxrad)
         if other_data is not None:
-            oalpha = total_alpha-main_alpha
-            outrgb += self.dataToZoomedRGB(other_data, alpha=oalpha, colormap=self.overlay_colormap, interpolation=self.overlay_interpolation)
+            outrgb += self.dataToZoomedRGB(other_data, alpha=overlay_alpha, colormap=self.overlay_colormap, interpolation=self.overlay_interpolation, scale=self.overlay_scale)
 
         ww = self.width()
         wh = self.height()
 
-        if st is not None and self.dip_bars_visible:
+        scale = 1.
+        if self.overlay_scale is not None:
+            scale = self.overlay_scale
+
+
+        if st is not None and self.dip_bars_visible and scale == 1:
             dh = 15
             w0i,h0i = self.wxyToIxy((0,0))
             w0i -= self.bar0[0]
@@ -1562,6 +1721,16 @@ class ImageViewer(QLabel):
         if self.umb is not None:
             wumb = self.ixyToWxy(self.umb)
             cv2.circle(outrgb, wumb, 3, (255,0,255), -1)
+
+        if self.warp_dots_visible:
+            # if scale == 1.:
+            if self.overlay_name == "warped":
+                if self.dest_dots is not None:
+                    self.drawPoints(self.dest_dots, outrgb)
+            else:
+                if self.src_dots is not None:
+                    self.drawPoints(self.src_dots, outrgb)
+
 
         '''
         for i,ray in enumerate(self.rays):
@@ -1649,6 +1818,10 @@ def process_cl_args():
                         type=int,
                         default=1,
                         help="decimation factor (default is no decimation)")
+    parser.add_argument("--warp_decimation",
+                        type=int,
+                        default=128,
+                        help="decimation factor for warping")
 
     # I decided not to use parse_known_args because
     # I prefer to get an error message if an argument
