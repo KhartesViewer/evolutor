@@ -39,24 +39,132 @@ from scipy.integrate import solve_ivp
 from skimage.transform import PiecewiseAffineTransform
 import nrrd
 
+'''
+This script takes a 2D scroll slice as input,
+and produces an undeformed version as output.
+It also acts as an interactive viewer so that
+you can analyze the steps that were used to
+produce the final result.
+
+Quick start
+
+0) The goal here is to create a small synthetic tif
+file, and then undeform it in wind2d.py.
+
+1) Modify synth2d.py so that it creates a synthetic
+tif file in the desired directory.
+
+2) Run synth2d.py.  Note the umbilicus coordinates
+that are printed out.
+
+3) Run wind2d.py, using command-line options to specify
+the location of the tif file created by synth2d,py, and
+the coordinates of the umbilicus.  For example:
+    python wind2d.py /mnt/vesuvius/circle.tif --umbiicus 549,463
+
+4) Wait for the wind2d.py window to come up, then press the
+'w' key to compute the undeformed verision.  Note that with
+the synthetic example, this should take only a few seconds.
+With real data (and using the --window 4000 option), it can
+take more than an hour.  You only need to press the 'w' key
+once; rerunning it won't change anything.
+
+Now you are ready to look at things in the window.
+
+You can use your mouse to do the usual pan and zoom.
+
+You can use the up and down arrows to view different
+overlays on top of the original data, or to view the
+undeformed data.  Note that the info bar in the bottom
+gives the name of the current overlay.
+
+On some overlays you can see cyan lines, each with a dot on one end.
+These lines show computed structure tensors, and should point
+in a direction normal to the surfaces.
+
+You can use the 'v' key to show/hide these lines.
+
+One of the overlays is called coh (coherence); it shows
+the local coherence of the data, calculated from the structure
+tensors.  This overlay is visible even before you hit the
+'w' key.
+
+Red dots should be visible; these show the points that are used
+in the warping (undeform) transform.  Use the 'Shift-v' combo
+to change the size of (or hide) these dots.
+
+The 'c' key lets you cycle through different colormaps for
+the current overlay.
+
+The 'i' key toggles whether the colormap of the overlay is
+interpolated linearly or by nearest neighbor (on many of
+the available colormaps, the difference is not visible).
+
+The 'q' key will exit the program.
+
+Here are some general concepts.
+
+In order to compute the undeform transform, wind2d goes
+through several steps.  After each step, the current result
+is saved in the cache directory 
+
+
+'''
+
 # From https://github.com/scikit-image/scikit-image/issues/6864
 class FastPiecewiseAffineTransform(PiecewiseAffineTransform):
     def __call__(self, coords):
         print("starting __call__")
         coords = np.asarray(coords)
+        print("coords", coords.shape)
+
+
+
+        raw_affines = np.array(
+            [self.affines[i].params for i in range(len(self._tesselation.simplices))])
+        print("created raw_affines", raw_affines.shape)
+
+        # process only "step" coords at a time
+        # in order not to use too much memory
+        step = 10000000
+        result = np.zeros((coords.shape[0], 3), dtype=coords.dtype)
+        for start in range(0, coords.shape[0], step):
+            end = min(start+step, coords.shape[0])
+            lcoords = coords[start:end]
+            simplex = self._tesselation.find_simplex(lcoords)
+            pts = np.c_[lcoords, np.ones((end-start, 1))]
+            result[start:end] = np.einsum("ij,ikj->ik", pts, raw_affines[simplex])
+            result[start:end][simplex == -1, :] = -1
+            # print(" ",start)
+
+
+        print("leaving __call__")
+        return result
+
+    def old__call__(self, coords):
+        print("starting __call__")
+        coords = np.asarray(coords)
+        print("coords", coords.shape)
 
         simplex = self._tesselation.find_simplex(coords)
-        print("found simplexes")
+        print("found simplexes", simplex.shape)
 
+        '''
         affines = np.array(
             [self.affines[i].params for i in range(len(self._tesselation.simplices))]
         )[simplex]
-        print("created affines")
+        '''
+        raw_affines = np.array(
+            [self.affines[i].params for i in range(len(self._tesselation.simplices))])
+        # affines = raw_affines[simplex]
+
+        # print("created affines", len(self.affines), raw_affines.shape, affines.shape)
+        print("created raw_affines", len(self.affines), raw_affines.shape)
 
         pts = np.c_[coords, np.ones((coords.shape[0], 1))]
 
-        result = np.einsum("ij,ikj->ik", pts, affines)
-        print("did einsum")
+        result = np.einsum("ij,ikj->ik", pts, raw_affines[simplex])
+        print("did einsum", pts.shape, result.shape, result.flags['C_CONTIGUOUS'])
         result[simplex == -1, :] = -1
 
         return result
@@ -279,7 +387,7 @@ class ImageViewer(QLabel):
         self.center_start_point = None
         self.is_panning = False
         self.dip_bars_visible = True
-        self.warp_dots_visible = True
+        self.warp_dot_size = 3
         self.umb = None
         self.overlays = []
         self.overlay_data = None
@@ -527,7 +635,8 @@ class ImageViewer(QLabel):
             self.drawAll()
         elif e.key() == Qt.Key_V:
             if e.modifiers() & Qt.ShiftModifier:
-                self.warp_dots_visible = not self.warp_dots_visible
+                self.warp_dot_size = (self.warp_dot_size+1)%4
+                # 
             else:
                 self.dip_bars_visible = not self.dip_bars_visible
             self.drawAll()
@@ -1120,9 +1229,10 @@ class ImageViewer(QLabel):
     def saveArray(self, part, arr):
         fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
         header = {"encoding": "raw",}
+        print("array is C type", arr.flags['C_CONTIGUOUS'])
         nrrd.write(str(fname), arr, index_order='C')
 
-    def loadOrCreateArray(self, part, fn):
+    def loadOrCreateArray(self, part, fn, save_tiff=False):
         if self.decimation is not None and self.decimation > 1:
             part = "_d%d%s"%(self.decimation, part)
         if self.window_width is not None:
@@ -1139,6 +1249,10 @@ class ImageViewer(QLabel):
             arr = fn()
             print("saving arr", part)
             self.saveArray(part, arr)
+            if save_tiff:
+                print("saving tiff", part)
+                tname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".tif")
+                cv2.imwrite(str(tname), (arr*65535).astype(np.uint16))
         return arr
 
     def createRadiusArray(self):
@@ -1466,21 +1580,48 @@ class ImageViewer(QLabel):
         # resize = .75
         # scale = 2.
 
-        resize = .75
-        scale = 2.
+        # slice 2000
+        # resize = .75
+
+        # slice 3000
+        # resize = .5
+
+        # scale = 2.
         ishape = self.image.shape
         # deci = int(math.sqrt(ishape[0]*ishape[1]/ndots))
         deci = self.warp_decimation
         ndots = ishape[0]*ishape[1] / (deci*deci)
         print("deci", deci, "ndots", ndots)
         srcd = src[::deci, ::deci].reshape(-1,2)
+        b = np.logical_and(srcd[:,0] <= 0, np.abs(srcd[:,1]) <= self.decimation)
+        srcd = srcd[~b]
         srcd += self.umb
         self.src_dots = srcd.copy()
+
+
         # srcd = srcd[100:150,100:150]
         # print(srcd[0])
         destd = dest[::deci, ::deci].reshape(-1,2)
+        destd = destd[~b]
+        print("destd min max", destd.min(axis=0), destd.max(axis=0))
+        dmin = destd.min(axis=0)
+        dmax = destd.max(axis=0)
+        dmin[dmin==0] = .01
+        dmax[dmax==0] = .01
+        imin = -self.umb
+        imax = imin + np.array((ishape[1],ishape[0]))
+        print("dmin, dmax", dmin, dmax)
+        print("imin, imax", imin, imax)
+        rmin = np.abs(imin/dmin).min()
+        rmax = np.abs(imax/dmax).min()
+        resize = min(rmin, rmax)*.95
+        scale = 1./resize
+        scale = min(scale, 2.)
+        print("resize", resize, "scale", scale)
+
         destd *= resize
         destd += self.umb
+        # print("destd min max", destd.min(axis=0), destd.max(axis=0))
         self.dest_dots = destd.copy()
         destd *= scale
         # print(destd[8])
@@ -1502,7 +1643,8 @@ class ImageViewer(QLabel):
                   "_ud", lambda: self.warpImage(rad, theta, rad1, theta1, ndots, resize, scale))
         '''
         oim = self.loadOrCreateArray(
-                  "_ud", lambda: self.warpImage(srcd, destd, scale))
+                  "_ud", lambda: self.warpImage(srcd, destd, scale), save_tiff=True)
+        print("finished warping")
 
         self.overlay_data = oim
         self.overlay_name = "warped"
@@ -1510,7 +1652,7 @@ class ImageViewer(QLabel):
         self.overlay_interpolation = "linear"
         self.overlay_maxrad = 1.
         self.overlay_alpha = 1.
-        self.overlay_scale = 2.
+        self.overlay_scale = scale
         self.saveCurrentOverlay()
         # o = self.getOverlayByName("warped")
         # o.alpha = 1.
@@ -1543,8 +1685,8 @@ class ImageViewer(QLabel):
         xform = FastPiecewiseAffineTransform()
         print("estimating")
         xform.estimate(destd, srcd)
-        print("warping")
         oshape = (int(ishape[0]*scale), int(ishape[1]*scale))
+        print("warping", oshape, oshape[0]*oshape[1])
         oim = skimage.transform.warp(self.image, xform, output_shape=oshape)
         return oim
 
@@ -1625,7 +1767,7 @@ class ImageViewer(QLabel):
         '''
         color = (255,0,0)
 
-        cv2.polylines(outrgb, points, True, color, 4)
+        cv2.polylines(outrgb, points, True, color, self.warp_dot_size)
         # cv2.circle(outrgb, points[0,0,0], 3, (255,0,255), -1)
 
     def drawAll(self):
@@ -1722,7 +1864,7 @@ class ImageViewer(QLabel):
             wumb = self.ixyToWxy(self.umb)
             cv2.circle(outrgb, wumb, 3, (255,0,255), -1)
 
-        if self.warp_dots_visible:
+        if self.warp_dot_size > 0:
             # if scale == 1.:
             if self.overlay_name == "warped":
                 if self.dest_dots is not None:
@@ -1816,11 +1958,11 @@ def process_cl_args():
                         help="max expected radius, in pixels (if not given, will be calculated from umbilicus position)")
     parser.add_argument("--decimation",
                         type=int,
-                        default=1,
+                        default=8,
                         help="decimation factor (default is no decimation)")
     parser.add_argument("--warp_decimation",
                         type=int,
-                        default=128,
+                        default=32,
                         help="decimation factor for warping")
 
     # I decided not to use parse_known_args because
