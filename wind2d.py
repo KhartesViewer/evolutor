@@ -194,9 +194,22 @@ of the point around the umbilicus, relative
 to the positive x axis.  Again, this is pure
 geometry.
 
-At each point compute the value r0, which is defined
-as the pre-deformation radius (distance to the umbilicus).
-In other words, if we had access to the scroll before
+A note about decimation.  Most of the following
+operations are fairly compute-intensive.  One way to
+speed them up is to limit the number of points that
+are involved in the computation.  The --decimation
+command-line flag sets the amount of decimation,
+which is applied both horizontally and vertically.
+So for instance, if the decimation factor is 8,
+only every 8th point, in every 8th row, will be used,
+which means that in the image, only 1 out of every
+64 points will be used.  In practice, a decimation
+factor of 8 seems to be optimal.
+
+At each point (strictly speaking, at every
+point remaining after decimation) compute the value r0, 
+which is defined as the pre-deformation radius (distance to 
+the umbilicus).  In other words, if we had access to the scroll before
 it was deformed, and were able to measure the distance
 from the umbilicus to the given sheet, r0 is the value
 that we would measure.
@@ -269,6 +282,11 @@ respect to the post-deformation distance averages out to be 1.
 That is, if the crushing decreased the present-day radius in
 some places, it should have increased it in other places.
 
+(Footnote: This is not strictly true; an improved version of the 
+algorithm might use a function f(r1) instead of 1, where f(r1)
+averages out to about 1.  Of course, inserting f(r1) into
+this equation would make it non-linear.)
+
 These equations can be put into the form Ax=b, and solved
 by the least-squares method to yield r1
 
@@ -308,8 +326,8 @@ to each other.  Although all points on this sheet are at
 the same radius, r, they have different theta values (angles).
 At the point with normal n and tangent t, we know that
 (r grad theta) dot t equals 1; this is simple geometry.  
-But t is inconvenient
-to use, so we'll replace the dot product with t by the
+But t is inconvenient to use, so we'll replace 
+the dot product with t by the
 cross product with n.  So (r grad theta) cross n = 1.
 On the post-deformation image, this formula is still valid,
 since the sheet conserves its length.
@@ -336,7 +354,62 @@ In order to take the branch cut discontinuity into account, the
 grad calculations need to include, in the y direction, 
 a term of 2 pi to compensate.
 
+After theta0 is computed, the value (r1 grad th0) cross n
+is computed at the points near the center of the image.  A
+multiplicative factor is applied to r1 to bring 
+average of this value to 1.
 
+(Note for improvement: r1 should be adjusted in a more 
+sophisticated way.  For instance, a new value, r2, could
+be calculated, where r2 is a monotonically increasing
+function of r1.  The function mapping r1 to r2 would be
+chosen so as to bring the (r2 grad th0) cross n value
+as close to 1 as possible.)
+
+After r1 is adjusted, the function used to calculate theta0
+is called again, this time with the adjusted r1.  The result
+is denoted as theta1 (th1 for short).
+
+We now have everything we need to map the image from 
+its current appearance to its original undeformed state.
+At each point of the image we know its pre-deformation radius,
+r1, and its pre-deformation angle, th1.  The r1 and th1 values
+are easily converted to pre-deformation x and y locations,
+so each pixel of the current-day image can be moved back to
+its original location.
+
+In practice, the image mapping is done using a decimated set
+of control points (the --warp_decimation flag controls this
+value), and the warping is done using the piecewise affine transform
+function provided by scikit-image.
+
+So that is the process.
+
+There are a number of places where the process can go wrong;
+here are a couple.
+
+First of all, the scrolls were deformed in 3D, not 2D.  So a
+single present-day 2D slice actually contains information from
+what would have been a number of slices in the pre-deformation
+scroll.  So ultimately the undeform process needs to be applied
+in 3D.
+
+Second, the undeform warping is non-physical, in that it doesn't
+take into account the fact that papyrus sheets deform in a different
+way than the space between the sheets.  Sheets can bend, but they
+do not change thickness.
+
+Consdier a region of the scroll where the papyrus sheets were squashed
+together during deformation.  When this region is transformed back
+to its "undeformed" state, the sheets should maintain their thickness;
+only the air gaps between the sheets expand.  But using the algorithm 
+presented here, the sheets will also become thicker, in a way that does 
+not make physical sense.  Likewise, point-like noise in the original 
+image can become stretched into linear noise as the result of 
+the "undeform" operation.
+
+But overall, the algorithm, despite its flaws, seems to work
+pretty well.
 
 '''
 # From https://github.com/scikit-image/scikit-image/issues/6864
