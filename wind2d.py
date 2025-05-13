@@ -104,9 +104,173 @@ The 'q' key will exit the program.
 
 Here are some general concepts.
 
-In order to compute the undeform transform, wind2d goes
-through several steps.  After each step, the current result
-is saved in the cache directory 
+In order to compute the undeform transform, wind2d proceeds
+through several steps.  After each step, the newly calculated 
+result is saved in the cache directory.  When wind2d is rerun,
+at each step, if it finds the corresponding file in the
+cache, it will reload that file instead of recomputing it.
+
+If you don't want any of the cache files to be reused, use
+the --no_cache command line option.  Or if you want to
+reuse only certain files, delete (or hides) the ones that
+you don't want reused.
+
+At each step, a number of overlays (which you just learned
+how to view) are created.  The number of overlays created
+depends on whether the --diagnostics flag appears on
+the command line.
+
+In summary, the processing steps are:
+
+When the image is loaded, compute structure tensors
+at each point of the image, including u, the apparent normal.
+
+Compute r, the current radius of each point (distance
+from the umbilicus), and theta, the current angle
+of each point around the umbilicus.
+
+Using r and u, compute r0, the pre-deformation radius
+(the distance that each point would have been from the
+umbilicus before the scroll was crushed).
+
+Where necessary, multipy the u vector by -1 to better
+align u with the normals implied by grad r0.
+
+Using r0 and u, compute r1, a refined value for the
+pre-deformation radius.
+
+Using r1 and u, compute theta0, the pre-deformation angle
+(the angle each point would have had around the umbilicus prior
+to deformation).
+
+Using r1, u, and a value derived from theta0, compute
+theta1, a refined value for the pre-deformation angle.
+
+Using r, theta, r1, and theta1, compute a mapping from the
+current (deformed) coordinate system to the pre-deformation
+(undeformed) coordinate system; apply this mapping to
+undeform the image.
+
+
+In detail, the processing steps are:
+
+When the image is loaded:
+
+The structure tensors and related 
+values are computed (or loaded from the cache).  The most 
+important value is called u in our notation; this is a two-component
+vector that is defined at each point of the image.  In
+areas of the image where sheets are clearly defined, the u
+vector points in the direction of the sheet's normal.  
+
+The u vector always has a length of 1.  However, 
+u has a sign ambiguity.  The u vector at each 
+location in the image might point towards the umbilicus, 
+or away from it; this can vary from location to location.
+
+Another value that is computed from the structure tensors
+is called coherence.  It has a value between 0.0 and 1.0,
+and represents how well-defined the sheets are.  If the
+sheets are not clearly distinguishable, the coherence
+will be close to 0, and the u vector cannot be relied
+upon to provide a valid value.
+
+See the comments in st.py for links to a number of
+papers about structure tensors.
+
+After 'w' is pressed:
+
+At each point of the image, compute the current
+(post-deformation) value of r, the distance (radius) 
+from the umbilicus.  This is a very quick and easy 
+computation, since it is pure geometry.  Likewise,
+compute the current value of theta, the angle
+of the point around the umbilicus, relative
+to the positive x axis.  Again, this is pure
+geometry.
+
+At each point compute the value r0, which is defined
+as the pre-deformation radius (distance to the umbilicus).
+In other words, if we had access to the scroll before
+it was deformed, and were able to measure the distance
+from the umbilicus to the given sheet, r0 is the value
+that we would measure.
+
+The function that computes r0 takes two inputs: the
+u vectors at each point, and the current r (post-deformation
+radius) at each point.  The values for r0 (recall that
+there is a value at each point of the image) is computed by
+applying the least square method to an over-determined set
+of linear equations.
+
+These equations need to take into account the sign ambiguity
+in u.  They also use the current radius r for stability.
+Let us define r0' by: r0 = r + r0' 
+so r0' is the difference between current-day r and our
+sought value, r0.
+We want the gradient of r0 to be aligned with the structure
+tensor normals; one way of expressing this
+is u cross (grad r0) = 0
+(that is, the gradient of r0, which gives the sheet
+normals, should be aligned with the u vectors.)
+Substituting for r0', we get:
+u cross (grad r0') = -u cross (grad r0).
+Then denote the u cross grad operator by matrix A,
+the sought-for quantity r0' by vector x, and 
+the right-hand side of the equation, which is constant,
+by vector b.
+Now we have the classic equation Ax=b, which can be
+solved numerically.
+
+There are a few enhancements that are applied.  For
+instance, the coherency is be applied at each point
+as a weighting factor, so that reliable u values are
+given a higher weight.  Some smoothing equations
+are used to ensure that r0' is smooth in
+areas where it is otherwise under-determined.
+And r0 at the umbilicus point is constrained to
+be zero.
+
+Once r0 is computed, it is possible to resolve the
+sign ambiguity in the u vector.  The u vector is
+supposed to represent the outward-pointing normal
+of the sheet, but the value computed using the structure tensor
+is ambiguous in sign, so the correct sign (direction) of the
+normal must be determined using other information.
+Before the scroll was crushed, "outward"
+could be determined by finding which of the two directions
+pointed away from the umbilicus.  But due to deformation,
+the sheet may have since been twisted to such an extent that 
+its outward normal now points towards the present-day umbilicus
+point.
+
+Fortunately, the r0 value helps us resolve the sign ambiguity.
+The gradient of r0, grad r0, points in the direction of the
+outward normal.  So the computation step here is: at each
+point of the image, set the sign of the u vector such that 
+the value of (grad r0) dot u is positive.
+
+Now that the sign ambiguity in u has been resolved, we use
+u to refine the value of the pre-deformation radius.
+To compute this new radius value, r1, we use another
+set of over-determined linear equations:
+
+u dot (grad r1) = 1
+u cross (grad r1) = 0  (this was also used to compute r0)
+
+The first set of equations, with the dot product, should help
+ensure that the change in the pre-deformation radius with
+respect to the post-deformation distance averages out to be 1.
+That is, if the crushing decreased the present-day radius in
+some places, it should have increased it in other places.
+
+As with the r0 computation, these formulas leave out a couple
+of details, such as weighting by the coherence value, and a
+smoothing term.  In the r1 case, the smoothing term does
+not seek to push the local r1 gradient towards 0 (which would
+be fighting against the dot product formula above); the smoothing
+term instead tries to push the second derivative of r1, in the
+x and y directions, towards zero.
 
 
 '''
