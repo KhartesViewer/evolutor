@@ -41,7 +41,7 @@ import nrrd
 
 '''
 This script takes a 2D scroll slice as input,
-and produces an undeformed version as output.
+and produces an undeformed version of the slice as output.
 It also acts as an interactive viewer so that
 you can analyze the steps that were used to
 produce the final result.
@@ -63,13 +63,13 @@ the coordinates of the umbilicus.  For example:
     python wind2d.py /mnt/vesuvius/circle.tif --umbiicus 549,463
 
 4) Wait for the wind2d.py window to come up, then press the
-'w' key to compute the undeformed verision.  Note that with
+'w' key to compute the undeformed version.  Note that with
 the synthetic example, this should take only a few seconds.
 With real data (and using the --window 4000 option), it can
 take more than an hour.  You only need to press the 'w' key
 once; rerunning it won't change anything.
 
-Now you are ready to look at things in the window.
+Now you are ready to look at the data and its overlays in the window.
 
 You can use your mouse to do the usual pan and zoom.
 
@@ -79,24 +79,24 @@ undeformed data.  Note that the info bar in the bottom
 gives the name of the current overlay.
 
 On some overlays you can see cyan lines, each with a dot on one end.
-These lines show computed structure tensors, and should point
-in a direction normal to the surfaces.
+These lines show values computed from the computed structure tensors,
+and should point in a direction normal to the surfaces.
 
 You can use the 'v' key to show/hide these lines.
 
 One of the overlays is called coh (coherence); it shows
 the local coherence of the data, calculated from the structure
-tensors.  This overlay is visible even before you hit the
+tensors.  This overlay can be viewed even before you hit the
 'w' key.
 
 Red dots should be visible; these show the points that are used
-in the warping (undeform) transform.  Use the 'Shift-v' combo
+in the warping (undeform) transform.  Use the 'Shift-v' key combo
 to change the size of (or hide) these dots.
 
 The 'c' key lets you cycle through different colormaps for
 the current overlay.
 
-The 'i' key toggles whether the colormap of the overlay is
+The 'i' key toggles whether the colormap of the current overlay is
 interpolated linearly or by nearest neighbor (on many of
 the available colormaps, the difference is not visible).
 
@@ -123,7 +123,8 @@ the command line.
 In summary, the processing steps are:
 
 When the image is loaded, compute structure tensors
-at each point of the image, including u, the apparent normal.
+and associated values at each point of the image.
+One of these values is u, the apparent normal.
 
 Compute r, the current radius of each point (distance
 from the umbilicus), and theta, the current angle
@@ -201,10 +202,10 @@ are involved in the computation.  The --decimation
 command-line flag sets the amount of decimation,
 which is applied both horizontally and vertically.
 So for instance, if the decimation factor is 8,
-only every 8th point, in every 8th row, will be used,
-which means that in the image, only 1 out of every
+only every 8th point, in every 8th row, will be used.
+This means that in the image, only 1 out of every
 64 points will be used.  In practice, a decimation
-factor of 8 seems to be optimal.
+factor of 8 seems to work well enough.
 
 At each point (strictly speaking, at every
 point remaining after decimation) compute the value r0, 
@@ -215,9 +216,9 @@ from the umbilicus to the given sheet, r0 is the value
 that we would measure.
 
 The function that computes r0 takes two inputs: the
-u vectors at each point, and the current r (post-deformation
+u vector at each point, and the current r (post-deformation
 radius) at each point.  The values for r0 (recall that
-there is a value at each point of the image) is computed by
+there is a value at each point of the image) are computed by
 applying the least square method to an over-determined set
 of linear equations.
 
@@ -238,10 +239,10 @@ the sought-for quantity r0' by vector x, and
 the right-hand side of the equation, which is constant,
 by vector b.
 Now we have the classic equation Ax=b, which can be
-solved numerically.
+solved numerically by a least-squares approach.
 
-There are a few enhancements that are applied.  For
-instance, the coherency is be applied at each point
+There are a few enhancements that are used in practice.
+For instance, the coherency is applied at each point
 as a weighting factor, so that reliable u values are
 given a higher weight.  Some smoothing equations
 are used to ensure that r0' is smooth in
@@ -260,9 +261,9 @@ could be determined by finding which of the two directions
 pointed away from the umbilicus.  But due to deformation,
 the sheet may have since been twisted to such an extent that 
 its outward normal now points towards the present-day umbilicus
-point.
+point.  Thus we cannot use the umbilicus location to help us.
 
-Fortunately, the r0 value helps us resolve the sign ambiguity.
+Fortunately, the r0 value lets us resolve the sign ambiguity.
 The gradient of r0, grad r0, points in the direction of the
 outward normal.  So the computation step here is: at each
 point of the image, set the sign of the u vector such that 
@@ -282,8 +283,9 @@ respect to the post-deformation distance averages out to be 1.
 That is, if the crushing decreased the present-day radius in
 some places, it should have increased it in other places.
 
-(Footnote: This is not strictly true; an improved version of the 
-algorithm might use a function f(r1) instead of 1, where f(r1)
+(Footnote: This assumption is not strictly true; an 
+improved version of the algorithm might use a function f(r1) 
+instead of a constant value of 1, where f(r1)
 averages out to about 1.  Of course, inserting f(r1) into
 this equation would make it non-linear.)
 
@@ -295,12 +297,12 @@ of details, such as weighting by the coherence value, and a
 smoothing term.  In the r1 case, the smoothing term does
 not seek to push the local r1 gradient towards 0 (which would
 be fighting against the dot product formula above); the smoothing
-term instead tries to push the second derivative of r1, in the
+term instead tries to push the second derivative of r1, taken in the
 x and y directions, towards zero.  As with the r0 computation,
 r1 at the umbilicus is constrained to be zero.
 
 Note, by the way, that r0 is not directly used in the computation
-of r1.  However, r0 played an indirect role in that it was
+of r1.  However, r0 played an indirect role, in that it was
 used to resolve the sign ambiguities of the u vector.
 
 Once r1 is computed, an adjustment factor is calculated.
@@ -309,7 +311,7 @@ actual ratio is calculated (in the center part of the image),
 and r1 is multiplied by whatever factor is needed to
 bring the average r1 / r ratio to 1.
 
-At this point it is possible to dispose of the u vector.
+At this point it is possible to dispense with the u vector.
 The problem with the u vector is that it is reliable only
 in areas of high coherence.  Fortunately, now that r1 has
 been calculated, we have a replacement.  The vector 
@@ -324,13 +326,13 @@ certain point on the sheet, we can draw the normal vector n relative
 to the sheet, and the tangent vector t.  n and t are perpendicular
 to each other.  Although all points on this sheet are at
 the same radius, r, they have different theta values (angles).
-At the point with normal n and tangent t, we know that
-(r grad theta) dot t equals 1; this is simple geometry.  
+At the point where we have defined normal n and tangent t, 
+we know that (r1 grad theta) dot t equals 1; this is simple geometry.  
 But t is inconvenient to use, so we'll replace 
 the dot product with t by the
-cross product with n.  So (r grad theta) cross n = 1.
+cross product with n.  So: (r1 grad theta) cross n = 1.
 On the post-deformation image, this formula is still valid,
-since the sheet conserves its length.
+because the sheet conserves its length during the deformation.
 
 So theta0 (th0 for short) at every point is the solution 
 to the set of equations:
@@ -375,13 +377,16 @@ its current appearance to its original undeformed state.
 At each point of the image we know its pre-deformation radius,
 r1, and its pre-deformation angle, th1.  The r1 and th1 values
 are easily converted to pre-deformation x and y locations,
-so each pixel of the current-day image can be moved back to
+so each pixel of the current-day image can be traced back to
 its original location.
 
 In practice, the image mapping is done using a decimated set
 of control points (the --warp_decimation flag controls this
 value), and the warping is done using the piecewise affine transform
 function provided by scikit-image.
+
+(The points used in the warping are drawn as red dots on the
+pre- and post-deformation images).
 
 So that is the process.
 
@@ -391,25 +396,29 @@ here are a couple.
 First of all, the scrolls were deformed in 3D, not 2D.  So a
 single present-day 2D slice actually contains information from
 what would have been a number of slices in the pre-deformation
-scroll.  So ultimately the undeform process needs to be applied
+scroll.  Conclusion: the undeform process needs to be applied
 in 3D.
 
 Second, the undeform warping is non-physical, in that it doesn't
 take into account the fact that papyrus sheets deform in a different
 way than the space between the sheets.  Sheets can bend, but they
-do not change thickness.
+do not change thickness.  On the other hand, when a scroll is
+deformed, the space between the sheets can easily change thickness
+(volume)
 
 Consdier a region of the scroll where the papyrus sheets were squashed
 together during deformation.  When this region is transformed back
 to its "undeformed" state, the sheets should maintain their thickness;
-only the air gaps between the sheets expand.  But using the algorithm 
-presented here, the sheets will also become thicker, in a way that does 
-not make physical sense.  Likewise, point-like noise in the original 
-image can become stretched into linear noise as the result of 
+only the air gaps between the sheets should expand.  
+But using the algorithm presented here, the sheets and the space
+between them will become thicker to the same extent, in a way that does 
+not make physical sense.  Just as the sheets can become thicker
+in a non-physical way, point-like noise in the original 
+image can get stretched into linear noise as the result of 
 the "undeform" operation.
 
-But overall, the algorithm, despite its flaws, seems to work
-pretty well.
+But overall, the algorithm, despite its flaws, works better
+than I had expected.
 
 '''
 # From https://github.com/scikit-image/scikit-image/issues/6864
