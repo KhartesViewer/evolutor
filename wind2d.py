@@ -136,14 +136,19 @@ umbilicus before the scroll was crushed).
 Where necessary, multipy the u vector by -1 to better
 align u with the normals implied by grad r0.
 
-Using r0 and u, compute r1, a refined value for the
+Using the adjusted u, compute r1, a refined value for the
 pre-deformation radius.
 
-Using r1 and u, compute theta0, the pre-deformation angle
+Replace u (the original surface normal) by n, a surface
+normal computed from grad r1.
+
+Using r1 and n, compute theta0, the pre-deformation angle
 (the angle each point would have had around the umbilicus prior
 to deformation).
 
-Using r1, u, and a value derived from theta0, compute
+Adjust r1 using a value derived from theta0.
+
+Using the adjusted r1, and n, compute
 theta1, a refined value for the pre-deformation angle.
 
 Using r, theta, r1, and theta1, compute a mapping from the
@@ -264,17 +269,76 @@ respect to the post-deformation distance averages out to be 1.
 That is, if the crushing decreased the present-day radius in
 some places, it should have increased it in other places.
 
-As with the r0 computation, these formulas leave out a couple
+These equations can be put into the form Ax=b, and solved
+by the least-squares method to yield r1
+
+As with the r0 computation, the formulas leave out a couple
 of details, such as weighting by the coherence value, and a
 smoothing term.  In the r1 case, the smoothing term does
 not seek to push the local r1 gradient towards 0 (which would
 be fighting against the dot product formula above); the smoothing
 term instead tries to push the second derivative of r1, in the
-x and y directions, towards zero.
+x and y directions, towards zero.  As with the r0 computation,
+r1 at the umbilicus is constrained to be zero.
+
+Note, by the way, that r0 is not directly used in the computation
+of r1.  However, r0 played an indirect role in that it was
+used to resolve the sign ambiguities of the u vector.
+
+Once r1 is computed, an adjustment factor is calculated.
+Averaged over the entire image, r1 / r should equal 1.  The
+actual ratio is calculated (in the center part of the image),
+and r1 is multiplied by whatever factor is needed to
+bring the average r1 / r ratio to 1.
+
+At this point it is possible to dispose of the u vector.
+The problem with the u vector is that it is reliable only
+in areas of high coherence.  Fortunately, now that r1 has
+been calculated, we have a replacement.  The vector 
+n = normal(grad r1) can be used in place of u.  (For historical
+reasons, the vector that here called n is called th0uvec
+in the code).
+
+Theta0, the pre-deformation angle of each point around the
+umbilicus, is calculated next.  Imagine that we have an
+undeformed scroll, which contains a sheet of radius r.  At a 
+certain point on the sheet, we can draw the normal vector n relative 
+to the sheet, and the tangent vector t.  n and t are perpendicular
+to each other.  Although all points on this sheet are at
+the same radius, r, they have different theta values (angles).
+At the point with normal n and tangent t, we know that
+(r grad theta) dot t equals 1; this is simple geometry.  
+But t is inconvenient
+to use, so we'll replace the dot product with t by the
+cross product with n.  So (r grad theta) cross n = 1.
+On the post-deformation image, this formula is still valid,
+since the sheet conserves its length.
+
+So theta0 (th0 for short) at every point is the solution 
+to the set of equations:
+(r1 grad th0) cross n = 1
+
+In practice, there are a few other equations to try and
+keep the solution smooth.
+
+But as before, the equations are linear and can be solved
+by the least-squares method.
+
+A complication occurs along the line (x < umbx, y = umby).
+In the pre-deformation scroll, theta jumps in value from
+pi (just above the line) to -pi (just below the line).
+This line is called a "branch cut".
+In the case of the post-deformation scroll, the th0 values
+either side of the branch cut are probably not exactly pi and -pi, 
+but they do increase in value by the same amount: 2 pi.
+
+In order to take the branch cut discontinuity into account, the
+grad calculations need to include, in the y direction, 
+a term of 2 pi to compensate.
+
 
 
 '''
-
 # From https://github.com/scikit-image/scikit-image/issues/6864
 class FastPiecewiseAffineTransform(PiecewiseAffineTransform):
     def __call__(self, coords):
