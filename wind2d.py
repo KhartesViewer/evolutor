@@ -421,7 +421,8 @@ But overall, the algorithm, despite its flaws, works better
 than I had expected.
 
 '''
-# From https://github.com/scikit-image/scikit-image/issues/6864
+# Adapted rom https://github.com/scikit-image/scikit-image/issues/6864
+# Modified to use less memory
 class FastPiecewiseAffineTransform(PiecewiseAffineTransform):
     def __call__(self, coords):
         print("starting __call__")
@@ -606,6 +607,7 @@ class MainWindow(QMainWindow):
         print("timestamp", self.timestr)
         self.setWindowTitle("wind2d  "+self.timestr)
 
+    # Not used at this time
     @staticmethod
     def readUmbilicus(fpath):
         uf = open(fpath, "r")
@@ -1101,6 +1103,9 @@ class ImageViewer(QLabel):
 
     # set is_cross True if op is cross product, False if
     # op is dot product
+    # Creates a sparse matrix that represents the operator
+    # vec2d cross grad  or  vec2d dot grad
+    # depending on the is_cross flag
     @staticmethod
     def sparseVecOpGrad(vec2d, is_cross):
         # full number of rows, columns of image;
@@ -1193,6 +1198,11 @@ class ImageViewer(QLabel):
         sparse_diag = sparse.coo_array((ones, (ix, ix)), shape=(nrf*ncf, nrf*ncf))
         return sparse_diag
 
+    # create a sparse matrix that represents the 2D grad operator.
+    # if interleave is true, the output is a single sparse matrix
+    # with interleaved x and y components of the grad.
+    # if interleave is false, separate sparse matrices are created
+    # for the x and y components of the grad
     @staticmethod
     def sparseGrad(shape, multiplier=None, interleave=True):
         # full number of rows, columns of image
@@ -1445,6 +1455,7 @@ class ImageViewer(QLabel):
         # return outl,outn
         return outl
 
+    # given radius and theta, compute x and y
     def xformXY(self, rad, theta):
         x = rad*np.cos(theta)
         y = rad*np.sin(theta)
@@ -1494,6 +1505,9 @@ class ImageViewer(QLabel):
         print("x", x.shape, x.dtype, x.min(), x.max())
         return x
 
+    # given an array filled with radius values, align
+    # the structure tensor u vector with the gradient of
+    # the radius
     def alignUVVec(self, rad0):
         st = self.main_window.st
         uvec = st.vector_u
@@ -1513,6 +1527,7 @@ class ImageViewer(QLabel):
         st.vector_u_interpolator = ST.createInterpolator(st.vector_u)
         st.vector_v_interpolator = ST.createInterpolator(st.vector_v)
 
+    '''
     def loadRadius0(self, fname):
         try:
             data, data_header = nrrd.read(str(fname), index_order='C')
@@ -1525,6 +1540,7 @@ class ImageViewer(QLabel):
     def saveRadius0(self, fname, rad0):
         header = {"encoding": "raw",}
         nrrd.write(str(fname), rad0, index_order='C')
+    '''
 
     def loadArray(self, part):
         fname = self.cache_file_base.with_name(self.cache_file_base.name + part + ".nrrd")
@@ -1587,6 +1603,8 @@ class ImageViewer(QLabel):
         # print("theta", theta.shape, theta.min(), theta.max())
         return theta
 
+    # given a radius array, create u vectors from the
+    # normalized gradients of that array.
     def synthesizeUVecArray(self, rad):
         gradx, grady = self.computeGrad(rad)
         uvec = np.stack((gradx, grady), axis=2)
@@ -1600,6 +1618,7 @@ class ImageViewer(QLabel):
         coh[-1,:] = 0
         return uvec, coh
 
+    # "E" stands for ellipse.  Create a synthetic radius array
     def createERadiusArray(self, ecc):
         umb = self.umb
         im = self.image
@@ -1611,6 +1630,7 @@ class ImageViewer(QLabel):
         # print("rad", rad.shape)
         return rad
 
+    # "E" stands for ellipse.  Create a synthetic theta array
     def createEThetaArray(self, ecc):
         cth = np.linspace(-np.pi, np.pi, num=129)
         ex = np.cos(cth)
@@ -1643,6 +1663,8 @@ class ImageViewer(QLabel):
         etheta = np.interp(ctheta, cth, eth)
         return etheta
 
+    # For debugging: create a mask to be applied to
+    # the input image or to the coherency array.
     def createMask(self):
         theta = self.createThetaArray()
         radius = self.createRadiusArray()
@@ -1668,6 +1690,8 @@ class ImageViewer(QLabel):
         mask[b] = 0
         return mask
 
+    # This is where the undeform operation takes place.
+    # The name of the function doesn't really make sense.
     def solveWindingOneStep(self):
         im = self.image
         if im is None:
@@ -1707,6 +1731,8 @@ class ImageViewer(QLabel):
         # # r factor
         # rad1 *= .7709
 
+        # find which locations in the image have
+        # high coherency and a low radius
         cargs = np.argsort(coh.flatten())
         min_coh = coh.flatten()[cargs[len(cargs)//4]]
         rargs = np.argsort(rad1.flatten())
@@ -1716,8 +1742,12 @@ class ImageViewer(QLabel):
         crb = np.logical_and(crb, rad > 0)
         rs = rad[crb]
         r1s = rad1[crb]
+        # using the locations found above, find the average
+        # ratio between r1 (pre-deformation radius) and
+        # current radius.
         mr1r = np.median(r1s/rs)
         print("mr1r", mr1r)
+        # apply this ratio as a correction to r1
         rad1 /= mr1r
 
         self.overlay_data = rad1
@@ -1749,6 +1779,10 @@ class ImageViewer(QLabel):
         # r factor
         # rad1 *= .7709
 
+        # create synthetic u vector and coherence
+        # using the gradient of r1
+        # (the coherence will be 1 almost everywhere,
+        # except at the edges)
         th0uvec, th0coh = self.synthesizeUVecArray(rad1)
 
         theta0 = self.loadOrCreateArray(
@@ -1776,6 +1810,8 @@ class ImageViewer(QLabel):
         gradx *= rad1
         grady *= rad1
         grad = np.sqrt(gradx*gradx+grady*grady)
+
+        # u cross (rad1 grad theta0)
         gxu = -gradx*th0uvec[:,:,1] + grady*th0uvec[:,:,0]
     
         if self.diagnostics:
@@ -1815,6 +1851,9 @@ class ImageViewer(QLabel):
         max_rad1 = rad1.flatten()[rargs[len(rargs)//4]]
 
         crb = np.logical_and(coh > min_coh, rad1 < max_rad1)
+
+        # gxu (defined above) should average out to 1.0 over the image;
+        # find the deviation and apply it as a correction factor to rad1
         mgxu = np.median(gxu[crb])
 
         print("mgxu", mgxu)
@@ -1852,6 +1891,7 @@ class ImageViewer(QLabel):
         rad = self.createRadiusArray()
         theta = self.createThetaArray()
 
+        # present day xy of image pixels
         src = self.xformXY(rad, theta)
 
         '''
@@ -1866,6 +1906,7 @@ class ImageViewer(QLabel):
         self.saveCurrentOverlay()
         '''
 
+        # pre-deformation xy of image pixels
         dest = self.xformXY(rad1, theta1)
 
         '''
@@ -1899,6 +1940,8 @@ class ImageViewer(QLabel):
         # scale = 2.
         ishape = self.image.shape
         # deci = int(math.sqrt(ishape[0]*ishape[1]/ndots))
+
+        # apply decimation and shift
         deci = self.warp_decimation
         ndots = ishape[0]*ishape[1] / (deci*deci)
         print("deci", deci, "ndots", ndots)
@@ -1911,6 +1954,9 @@ class ImageViewer(QLabel):
 
         # srcd = srcd[100:150,100:150]
         # print(srcd[0])
+        # apply decimation and shift
+        # need to apply additional factors to make 
+        # sure un-deformed image is fully visible
         destd = dest[::deci, ::deci].reshape(-1,2)
         destd = destd[~b]
         print("destd min max", destd.min(axis=0), destd.max(axis=0))
