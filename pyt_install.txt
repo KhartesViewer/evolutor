@@ -1,0 +1,2 @@
+conda install conda-forge::pytorch
+conda install conda-forge::torchvision
