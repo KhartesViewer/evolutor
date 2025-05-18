@@ -98,7 +98,7 @@ print(brnd)
 def gaussian_kernel_1d(sigma, num_sigmas = 3.):
     radius = math.ceil(num_sigmas * sigma)
     support = torch.arange(-radius, radius + 1, dtype=torch.float)
-    kernel = torch.distributions.Normal(loc=0, scale=sigma).log_prob(support).exp_()
+    kernel = torch.distributions.Normal(loc=0, scale=sigma).log_prob(support).exp_().to(gpu)
     # Ensure kernel weights sum to 1, so that image brightness is not altered
     return kernel.mul_(1 / kernel.sum())
 
@@ -118,11 +118,11 @@ def gaussian_filter_2d(img, sigma):
 sz = 500
 nrnd = np.random.rand(sz, sz).astype(np.float32)
 im = Image.fromarray((nrnd*255).astype(np.uint8))
-# im.show()
+im.show()
 
 grnd = torch.from_numpy(nrnd).to(gpu)
 
-bgrnd = gaussian_filter_2d(grnd, 2.)
+bgrnd = gaussian_filter_2d(grnd, 5.)
 
 bim = Image.fromarray((bgrnd.cpu().numpy()*255).astype(np.uint8))
 bim.show()
