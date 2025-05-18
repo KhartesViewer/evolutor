@@ -29,7 +29,7 @@ gpu = torch.accelerator.current_accelerator() if torch.accelerator.is_available(
 print("cpu", cpu)
 print("gpu", gpu)
 
-print(torch.xpu.get_device_properties(0))
+# print(torch.xpu.get_device_properties(0))
 
 sz = 8000
 
@@ -43,10 +43,12 @@ crnd = torch.rand(sz, sz, device=cpu)
 print(crnd.shape, crnd.dtype, crnd.device)
 t("create crnd")
 
-nrnd = np.random.rand(sz, sz)
+# same precision as default torch float precision
+nrnd = np.random.rand(sz, sz).astype(np.float32)
 print(nrnd.shape, nrnd.dtype)
 t("create nrnd")
 
+# Note that MPS does not support torch.float64 type
 gnrnd = torch.from_numpy(nrnd).to(gpu)
 print(gnrnd.shape, gnrnd.dtype)
 t("create gnrnd")
