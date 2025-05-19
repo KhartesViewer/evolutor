@@ -3,19 +3,19 @@ import time
 import pathlib
 import math
 
-import cv2
+# import cv2
 import numpy as np
-import scipy
+# import scipy
 # from scipy.ndimage import gaussian_filter, gaussian_filter1d
-from scipy.interpolate import RegularGridInterpolator, CubicSpline
-from scipy.integrate import solve_ivp
-from scipy.optimize import least_squares
-from scipy.sparse.linalg import LinearOperator
+# from scipy.interpolate import RegularGridInterpolator, CubicSpline
+# from scipy.integrate import solve_ivp
+# from scipy.optimize import least_squares
+# from scipy.sparse.linalg import LinearOperator
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import PIL
-import nrrd
+# import nrrd
 
 '''
 Structural Tensor code based on:
