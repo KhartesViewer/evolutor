@@ -31,7 +31,7 @@ print("gpu", gpu)
 
 # print(torch.xpu.get_device_properties(0))
 
-sz = 8000
+sz = 10000
 
 t = Timer()
 
