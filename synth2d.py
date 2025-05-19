@@ -2,7 +2,8 @@ from pathlib import Path
 import numpy as np
 import cv2
 
-outdir = Path(r"C:\Vesuvius\Projects\evol1")
+# outdir = Path(r"C:\Vesuvius\Projects\evol1")
+outdir = Path(r"/Users/dev/Desktop/Progs/Vesuvius/Projects/evol1")
 
 ofile = outdir / "circle.tif"
 
