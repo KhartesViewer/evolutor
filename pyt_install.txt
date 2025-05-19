@@ -1,2 +1,31 @@
+MacOS:
 conda install conda-forge::pytorch
 conda install conda-forge::torchvision
+
+Windows:
+conda install conda-forge::python
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+
+conda install conda-forge::scipy
+conda install conda-forge::pynrrd
+conda install conda-forge::scikit-image
+conda install conda-forge::opencv
+
+conda install -c conda-forge opencv
+conda install -c conda-forge pyqt
+conda install -c conda-forge scikit-image
+conda install -c conda-forge pynrrd
+conda install -c conda-forge cmap
+pip3 install torch==2.7.0+xpu torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+
+conda install python
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+pip3 install opencv-python
+pip3 install pyqt5
+pip3 install scikit-image
+pip3 install pynrrd
+pip3 install cmap
+
+
+
+

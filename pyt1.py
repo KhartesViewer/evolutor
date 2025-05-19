@@ -34,23 +34,28 @@ else:
     gpu = cpu
 '''
 
+print("hello")
 gpu = torch.accelerator.current_accelerator() if torch.accelerator.is_available() else "cpu"
+
+# gpu = "cpu"
 
 print("cpu", cpu)
 print("gpu", gpu)
 
+# print(torch.xpu.get_device_properties(0))
 
 # rnd = torch.rand(2,3,3, device=gpu)
 rnd = torch.zeros(2,3,3, device=gpu)
-rnd[0,1,1] = 2.
+rnd[0,1,1] = 2.5
 print(rnd.shape)
 print(rnd)
 
-exit()
 
 rnd *= rnd
 print(rnd.shape)
 print(rnd)
+
+# exit()
 
 # https://stackoverflow.com/questions/60534909/gaussian-filter-in-pytorch/73164332
 
