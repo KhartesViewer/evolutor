@@ -78,14 +78,14 @@ class ST(object):
         self.coherence = None
         # self.vector_u_interpolator_ = None
         # self.vector_v_interpolator_ = None
-        self.lambda_u_interpolator_ = None
-        self.lambda_v_interpolator_ = None
-        self.vector_u_interpolator_ = None
-        self.vector_v_interpolator_ = None
-        self.grad_interpolator_ = None
-        self.isotropy_interpolator_ = None
-        self.linearity_interpolator_ = None
-        self.coherence_interpolator_ = None
+        # self.lambda_u_interpolator_ = None
+        # self.lambda_v_interpolator_ = None
+        # self.vector_u_interpolator_ = None
+        # self.vector_v_interpolator_ = None
+        # self.grad_interpolator_ = None
+        # self.isotropy_interpolator_ = None
+        # self.linearity_interpolator_ = None
+        # self.coherence_interpolator_ = None
 
         '''
         cpu = torch.device('cpu')
@@ -163,6 +163,8 @@ class ST(object):
 
         evals, evecs = torch.linalg.eigh(h)
         # evals, evecs = torch.linalg.eig(h)
+        evals = evals.view((gx2.shape[0], gx2.shape[1], 2))
+        evecs = evecs.view((gx2.shape[0], gx2.shape[1], 2, 2))
         return evals, evecs
 
     @staticmethod
@@ -173,7 +175,7 @@ class ST(object):
         # See https://www.soest.hawaii.edu/martel/Courses/GG303/Eigenvectors.pdf
         # for a derivation
         ad = gx2+gy2
-        sq = np.sqrt((gx2-gy2)**2+4*gxy**2)
+        sq = torch.sqrt((gx2-gy2)**2+4*gxy**2)
         lu = .5*(ad+sq)
         lv = .5*(ad-sq)
         # lv should never be < 0, but numerical issues
@@ -213,12 +215,15 @@ class ST(object):
         # linearly interpolated, because when the x component changes
         # sign, linear interpolation will send the x component to zero.
         # Yikes!
-        vu = np.concatenate((gxy, lu-gx2)).reshape(2,gxy.shape[0],gxy.shape[1]).transpose(1,2,0)
+        # vu = np.concatenate((gxy, lu-gx2)).reshape(2,gxy.shape[0],gxy.shape[1]).transpose(1,2,0)
+        vu = torch.stack((gxy, lu-gx2), dim=2)
         vu[lu0,:] = 0.
-        vulen = np.sqrt((vu*vu).sum(axis=2))
+        # vulen = np.sqrt((vu*vu).sum(axis=2))
+        vulen = torch.sqrt((vu*vu).sum(dim=2))
         vulen[vulen==0] = 1
-        vu /= vulen[:,:,np.newaxis]
-        # print("vu", vu.shape, vu.dtype)
+        # vu /= vulen[:,:,np.newaxis]
+        vu /= vulen.unsqueeze(2)
+        print("vu", vu.shape, vu.dtype)
         
         # eigenvector v
         # eigenvector v is parallel to the layering,
@@ -228,9 +233,13 @@ class ST(object):
         # a separate numerical calculation for vv as an eigenvector.
         # This provides
         # more stability in the case of precision problems
-        vv = vu[:,:,::-1].copy()
+        # vv = vu[:,:,::-1].copy()
+        vv = vu.flip(2)
         vv[:,:,0] *= -1
 
+        evals = torch.stack((lu, lv), dim=2)
+        evecs = torch.stack((vu, vv), dim=2)
+        return evals, evecs
 
         
     def computeTensors(self):
@@ -279,9 +288,30 @@ class ST(object):
         # self.showArray(gy2)
         # self.showArray(gxy)
 
-        evals, evecs = self.computeEigensTorch(gx2, gxy, gy2)
+        # evals, evecs = self.computeEigensTorch(gx2, gxy, gy2)
+        evals, evecs = self.computeEigensExplicit(gx2, gxy, gy2)
         print("evals", evals.shape, evals.dtype, evals.device)
         print("evecs", evecs.shape, evecs.dtype, evecs.device)
+
+        lu = evals[:,:,0]
+        lv = evals[:,:,1]
+        vu = evecs[:,:,0]
+        vv = evecs[:,:,1]
+
+        isotropy = lv/lu
+        linearity = (lu-lv)/lu
+        coherence = ((lu-lv)/(lu+lv))**2
+
+        # self.showArray(coherence)
+
+        self.lambda_u = lu
+        self.lambda_v = lv
+        self.vector_u = vu
+        self.vector_v = vv
+        self.grad = grad
+        self.isotropy = isotropy
+        self.linearity = linearity
+        self.coherence = coherence
 
         # h = torch.stack((gx2,gxy,gxy,gy2), dim=2).reshape(-1,2,2)
         # print("h", h.shape, h.dtype, h.device)
@@ -308,6 +338,28 @@ class ST(object):
         # gxy = gaussian_filter(gx*gy, sigma1)
         gxy = cv2.GaussianBlur(gx*gy, (0, 0), sigma1)
         '''
+
+    # array is data array, pts is list of 2D points.
+    # both are assumed to be on the same device.
+    # input array shape is (H,W) or (C,H,W), 
+    # pts array shape is (N, 2).
+    # Output array shape is (N) or (N,C)
+    @ staticmethod
+    def interpolator(array, pts):
+        print("interpolator: array", array.shape, array.dtype, array.device)
+        print("interpolator: pts", pts.shape, pts.dtype, pts.device)
+        ashape = array.shape
+        if len(ashape) == 2:
+            a = array.unsqueeze(0)
+        else:
+            a = array
+        a = a.unsqueeze(0)
+        p = pts.unsqueeze(0)
+        print("interpolator: a,p", a.shape, p.shape)
+        out = F.grid_sample(a, p, align_corners=True) 
+        if len(ashape == 2):
+            out = out.squeeze(1)
+        return out
 
     def saveEigens(self, fname):
         if self.lambda_u is None:
