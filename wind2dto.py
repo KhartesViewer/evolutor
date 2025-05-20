@@ -584,7 +584,8 @@ class MainWindow(QMainWindow):
         self.viewer.saveCurrentOverlay()
 
         self.viewer.overlay_name = "coherence"
-        self.viewer.overlay_data = self.st.coherence.cpu().numpy().copy()
+        # self.viewer.overlay_data = self.st.coherence.cpu().numpy().copy()
+        self.viewer.overlay_data = self.st.coherence
         # self.viewer.overlay_data *= mask
         self.viewer.overlay_colormap = "viridis"
         self.viewer.overlay_interpolation = "linear"
@@ -2188,7 +2189,9 @@ class ImageViewer(QLabel):
             # print ("dpw", dpw.shape, dpw.dtype, dpw[0,5])
             dpi = self.wxysToIxys(dpw)
             # interpolators expect y,x ordering
-            dpir = dpi[:,:,::-1].copy()
+            # dpir = dpi[:,:,::-1].copy()
+            # TODO: or do they?
+            dpir = dpi.copy()
             gdpir = torch.from_numpy(dpir).to(self.gpu)
             uvs = st.interpolator(st.vector_u, gdpir).cpu().numpy()
             vvs = st.interpolator(st.vector_v, gdpir).cpu().numpy()
@@ -2198,7 +2201,7 @@ class ImageViewer(QLabel):
             # vvs = st.vector_v_interpolator(dpir)
             # print("vvs", vvs.shape, vvs.dtype, vvs[0,5])
             # coherence = st.coherence_interpolator(dpir)
-            coherence = st.linearity_interpolator(dpir)
+            # coherence = st.linearity_interpolator(dpir)
             # testing
             # coherence[:] = .5
             # print("coherence", coherence.shape, coherence.dtype, coherence[0,5])

@@ -346,19 +346,34 @@ class ST(object):
     # Output array shape is (N) or (N,C)
     @ staticmethod
     def interpolator(array, pts):
-        print("interpolator: array", array.shape, array.dtype, array.device)
-        print("interpolator: pts", pts.shape, pts.dtype, pts.device)
+        # print("interpolator: array", array.shape, array.dtype, array.device)
+        # print(array[250,250])
+        # print("interpolator: pts", pts.shape, pts.dtype, pts.device)
         ashape = array.shape
         if len(ashape) == 2:
             a = array.unsqueeze(0)
         else:
-            a = array
+            a = torch.permute(array, (2,0,1))
         a = a.unsqueeze(0)
-        p = pts.unsqueeze(0)
-        print("interpolator: a,p", a.shape, p.shape)
+        # p = pts.reshape(1,-1,2)
+        # print("pts", pts[14,14])
+        p = pts.unsqueeze(0).clone()
+        p[0,:,:,0] = -1 + 2*p[0,:,:,0]/ashape[0]
+        p[0,:,:,1] = -1 + 2*p[0,:,:,1]/ashape[1]
+        # TODO: is there some way to make this work?
+        # p = -1 + 2*p/ashape
+        # print("interpolator: a,p", a.shape, p.shape)
+        # print(a[0,:,250,250])
+        # print("p", p[0,14,14])
         out = F.grid_sample(a, p, align_corners=True) 
-        if len(ashape == 2):
-            out = out.squeeze(1)
+        # print(out[0,:,8,8])
+        out = out.squeeze(0)
+        if len(ashape) == 2:
+            out = out.squeeze(0)
+        else:
+            out = torch.permute(out, (1,2,0))
+        # print("interpolator: a,p,out", a.shape, p.shape, out.shape)
+        # print("out", out[14,14])
         return out
 
     def saveEigens(self, fname):

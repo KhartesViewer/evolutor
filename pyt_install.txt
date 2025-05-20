@@ -1,6 +1,13 @@
 MacOS:
 conda install conda-forge::pytorch
 conda install conda-forge::torchvision
+conda install conda-forge::opencv
+conda install conga-forge::libvorbis  # for opencv
+conda install conda-forge::pyqt
+conda install conda-forge::spicy
+conda install conda-forge::scikit-image
+conda install conda-forge::pynrrd
+conda install conda-forge::cmap
 
 Windows:
 conda install conda-forge::python
