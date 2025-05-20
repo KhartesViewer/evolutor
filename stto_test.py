@@ -52,9 +52,9 @@ def loadTIFF(fname):
     return image
 
 t = Timer()
-fname = r"/Users/dev/Desktop/Progs/Vesuvius/Projects/evol1/circle.tif"
+# fname = r"/Users/dev/Desktop/Progs/Vesuvius/Projects/evol1/circle.tif"
 # fname = r"C:\Vesuvius\Projects\evol1\circle.tif"
-# fname = r"C:\Vesuvius\scroll 1 masked xx000\02000.tif"
+fname = r"C:\Vesuvius\scroll 1 masked xx000\02000.tif"
 nim = loadTIFF(fname)
 t.time("loaded")
 
