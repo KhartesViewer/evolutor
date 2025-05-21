@@ -339,11 +339,77 @@ class ST(object):
         gxy = cv2.GaussianBlur(gx*gy, (0, 0), sigma1)
         '''
 
+    # array.shape = (nh, nw, nc)
+    # pts.shape = (n, 2)
+    # each location in pts is in x,y order
+    @staticmethod
+    def sample2dNearest(array, pts):
+        values = torch.zeros((pts.shape[0], array.shape[2]), device=pts.device)
+        # print(values.shape)
+        ipts = torch.floor(pts+.5).to(dtype=torch.int32)
+        # print(ipts[0], ipts[-1])
+        ashape = array.shape
+        # Note how ashape indices are switched here
+        validx = torch.logical_and(ipts[:,0]>=0, ipts[:,0]<ashape[1])
+        validy = torch.logical_and(ipts[:,1]>=0, ipts[:,1]<ashape[0])
+        valid = torch.logical_and(validx, validy)
+        vpts = ipts[valid, :]
+        # print(valid.device, vpts.device, values.device)
+        # print(ashape, pts.shape, vpts.shape)
+        vvals = array[vpts[:,1], vpts[:,0]]
+        values[valid] = vvals
+
+        return values
+
+    # Behavior like F.grid_sample, but assumes 2D only, and
+    # only one batch.
+    # iarray.shape = (1, nc, nh, nw)
+    # ipts.shape = (1, nh', nw', 2)
+    # each 2-element item in ipts.shape has x, y location
+    # of a sample point
+    @staticmethod
+    def myGridSample(iarray, ipts, align_corners=True):
+        ipshape = ipts.shape
+        iashape = iarray.shape
+        # print("mgs", ashape, pshape)
+        nc = iashape[1]
+        fake = torch.zeros((1,nc,ipshape[1],ipshape[2]))
+
+        pts = ipts.squeeze(0)
+        # pshape = (nh', nw', 2)
+        pshape = pts.shape
+        array = torch.permute(iarray.squeeze(0), (1,2,0))
+        # ashape = (nh, nw, nc)
+        ashape = array.shape
+        # print("mgs", iashape, ashape, ipshape, pshape)
+        lpts = pts.reshape(-1, 2)
+        # lpshape = (nh' x nw', 2)
+        '''
+        lpshape = lpts.shape
+        ilpts = torch.floor(lpts).to(dtype=torch.int32)
+        valid0 = torch.logical_and(ilpts[:,0]>=0, ilpts[:,0]<ashape[0]-1)
+        valid1 = torch.logical_and(ilpts[:,1]>=0, ilpts[:,1]<ashape[1]-1)
+        valid = torch.logical_and(valid0, valid1)
+        i00 = torch.zeros((lpts.shape[0], nc), dtype=array.dtype, device=array.device)
+        '''
+        # undo this operation:
+        # p[0,:,:,0] = -1 + 2*p[0,:,:,0]/ashape[1]
+        # p[0,:,:,1] = -1 + 2*p[0,:,:,1]/ashape[0]
+        rpts = torch.zeros_like(lpts)
+        # NOTE that ashape coefficients are switched here
+        rpts[:,0] = .5*(lpts[:,0]+1.)*ashape[1]
+        rpts[:,1] = .5*(lpts[:,1]+1.)*ashape[0]
+        vals = ST.sample2dNearest(array, rpts)
+        vals = vals.reshape(1, pshape[0], pshape[1], nc)
+        vals = torch.permute(vals, (0, 3, 1, 2))
+
+        return vals
+
     # array is data array, pts is list of 2D points.
     # both are assumed to be on the same device.
     # input array shape is (H,W) or (C,H,W), 
-    # pts array shape is (N, 2).
-    # Output array shape is (N) or (N,C)
+    # pts array shape is (H',W',2).
+    # Output array shape is (H',W') or (H',W',C)
     @ staticmethod
     def interpolator(array, pts):
         # print("interpolator: array", array.shape, array.dtype, array.device)
@@ -355,17 +421,32 @@ class ST(object):
         else:
             a = torch.permute(array, (2,0,1))
         a = a.unsqueeze(0)
+        ''''''
         # p = pts.reshape(1,-1,2)
         # print("pts", pts[14,14])
         p = pts.unsqueeze(0).clone()
-        p[0,:,:,0] = -1 + 2*p[0,:,:,0]/ashape[0]
-        p[0,:,:,1] = -1 + 2*p[0,:,:,1]/ashape[1]
+        # NOTE that ashape coefficients are switched here
+        p[0,:,:,0] = -1 + 2*p[0,:,:,0]/ashape[1]
+        p[0,:,:,1] = -1 + 2*p[0,:,:,1]/ashape[0]
         # TODO: is there some way to make this work?
         # p = -1 + 2*p/ashape
         # print("interpolator: a,p", a.shape, p.shape)
         # print(a[0,:,250,250])
         # print("p", p[0,14,14])
-        out = F.grid_sample(a, p, align_corners=True) 
+        # out = F.grid_sample(a, p, align_corners=True) 
+        out = ST.myGridSample(a, p, align_corners=True) 
+        ''''''
+
+        '''
+        pshape = pts.shape
+        p0 = pts[0,0]
+        dp = pts[1,1]-p0
+        p1 = pts[-1,-1]
+        print("p", p0,dp,p1)
+        nc = a.shape[1]
+        out = torch.zeros((1,nc,pshape[0],pshape[1]))
+        '''
+
         # print(out[0,:,8,8])
         out = out.squeeze(0)
         if len(ashape) == 2:
