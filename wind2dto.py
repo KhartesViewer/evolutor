@@ -723,6 +723,10 @@ class ImageViewer(QLabel):
         self.dest_dots = None
         self.cpu = torch.device('cpu')
         self.gpu = torch.accelerator.current_accelerator() if torch.accelerator.is_available() else "cpu"
+        self.safe_gpu = self.gpu
+        if str(self.gpu) == "xpu":
+            self.safe_gpu = self.cpu
+
 
     def setOverlayDefaults(self):
         self.overlay_defaults = Overlay("", None, self.overlay_maxrad, self.overlay_colormap, self.overlay_interpolation)
@@ -2199,9 +2203,9 @@ class ImageViewer(QLabel):
             # TODO: or do they?
             dpir = dpi.copy()
             gdpir = torch.from_numpy(dpir).to(self.gpu)
-            uvs = st.interpolator(st.vector_u, gdpir).cpu().numpy()
-            vvs = st.interpolator(st.vector_v, gdpir).cpu().numpy()
-            coherence = st.interpolator(st.linearity, gdpir).cpu().numpy()
+            uvs = st.interpolator(st.vector_u, gdpir, device=self.safe_gpu).cpu().numpy()
+            vvs = st.interpolator(st.vector_v, gdpir, device=self.safe_gpu).cpu().numpy()
+            coherence = st.interpolator(st.linearity, gdpir, device=self.safe_gpu).cpu().numpy()
             # print ("dpi", dpi.shape, dpi.dtype, dpi[0,5])
             # uvs = st.vector_u_interpolator(dpir)
             # vvs = st.vector_v_interpolator(dpir)
