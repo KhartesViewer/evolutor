@@ -912,7 +912,8 @@ class ImageViewer(QLabel):
             self.drawAll()
         '''
         if e.key() == Qt.Key_W:
-            self.solveWindingOneStep()
+            # self.solveWindingOneStep()
+            self.undeform()
             self.drawAll()
         elif e.key() == Qt.Key_C:
             if e.modifiers() & Qt.ShiftModifier:
@@ -1598,11 +1599,14 @@ class ImageViewer(QLabel):
     def createRadiusArray(self):
         umb = self.umb
         im = self.image
-        iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
+        # iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
+        x0s = torch.arange(im.shape[0], device=self.gpu)
+        x1s = torch.arange(im.shape[1], device=self.gpu)
+        iys, ixs = torch.meshgrid((x0s, x1s), indexing='ij')
         # print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
         radsq = (ixs-umb[0])*(ixs-umb[0])+(iys-umb[1])*(iys-umb[1])
-        rad = np.sqrt(radsq)
+        rad = torch.sqrt(radsq)
         # print("rad", rad.shape)
         return rad
 
@@ -1703,6 +1707,20 @@ class ImageViewer(QLabel):
         # mask[b] = .5
         mask[b] = 0
         return mask
+
+    def undeform(self):
+        im = self.image
+        if im is None:
+            return
+
+        rad = self.createRadiusArray()
+
+        self.overlay_data = rad
+        self.overlay_name = "rad"
+        self.overlay_colormap = "tab20"
+        self.overlay_interpolation = "nearest"
+        self.overlay_maxrad = self.umb_maxrad
+        self.saveCurrentOverlay()
 
     # This is where the undeform operation takes place.
     # The name of the function doesn't really make sense.
@@ -2116,8 +2134,13 @@ class ImageViewer(QLabel):
             # zslc = cv2.resize(cdata[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_NEAREST)
             idata = data[y1s:y2s,x1s:x2s].unsqueeze(0).unsqueeze(0)
             odata = F.interpolate(idata, size=(y2-y1, x2-x1)).squeeze(0).squeeze(0)
+            # take remainder to allow wrapping of color maps.
+            # use 1+epsilon so that 1.0 (max possible value) does not
+            # get mapped to 0.
+            odata = torch.clamp(torch.remainder(odata, 1.0001), min=0., max=1.0)
             zslc = odata.cpu().numpy()
-            cslc = cm(np.remainder(zslc, 1.))
+            # cslc = cm(np.remainder(zslc, 1.))
+            cslc = cm(zslc)
             outrgb[y1:y2, x1:x2, :] = (255*cslc[:,:,:3]*alpha).astype(np.uint8)
         return outrgb
 
@@ -2203,9 +2226,9 @@ class ImageViewer(QLabel):
             # TODO: or do they?
             dpir = dpi.copy()
             gdpir = torch.from_numpy(dpir).to(self.gpu)
-            uvs = st.interpolator(st.vector_u, gdpir, device=self.safe_gpu).cpu().numpy()
-            vvs = st.interpolator(st.vector_v, gdpir, device=self.safe_gpu).cpu().numpy()
-            coherence = st.interpolator(st.linearity, gdpir, device=self.safe_gpu).cpu().numpy()
+            uvs = st.interpolator(st.vector_u, gdpir, mode='nearest', device=self.safe_gpu).cpu().numpy()
+            vvs = st.interpolator(st.vector_v, gdpir, mode='nearest', device=self.safe_gpu).cpu().numpy()
+            coherence = st.interpolator(st.linearity, gdpir, mode='nearest', device=self.safe_gpu).cpu().numpy()
             # print ("dpi", dpi.shape, dpi.dtype, dpi[0,5])
             # uvs = st.vector_u_interpolator(dpir)
             # vvs = st.vector_v_interpolator(dpir)
