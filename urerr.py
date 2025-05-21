@@ -19,7 +19,8 @@ print("arr", arr.shape, arr.dtype, arr.device)
 pts = -1+2*torch.rand(1,3,3,2, device=gpu)
 print("pts", pts.shape, pts.dtype, pts.device)
 
-out = F.grid_sample(arr, pts, align_corners=False)
+# out = F.grid_sample(arr, pts, align_corners=False)
+out = F.interpolate(arr, size=(10,20))
 
 print("out", out.shape, out.dtype, out.device)
 

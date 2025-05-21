@@ -11,7 +11,7 @@ import skimage
 import torch
 import torch.nn.functional as F
 
-from stto import ST
+from stto import ST, Timer
 
 from PyQt5.QtWidgets import (
         QApplication,
@@ -576,7 +576,9 @@ class MainWindow(QMainWindow):
             print("computing/loading structural tensors")
             self.st.loadOrCreateEigens(nrrdname)
         '''
+        t = Timer()
         self.st.computeTensors()
+        t.time("computed tensors")
 
         # mask = self.viewer.createMask()
 
@@ -2058,14 +2060,14 @@ class ImageViewer(QLabel):
     # output: RGB array, uint8, with colors determined by the
     # colormap and alpha, zoomed in based on the current
     # window size, center, and zoom factor
-    def dataToZoomedRGB(self, gdata, alpha=1., colormap="gray", interpolation="linear", scale=1.):
+    def dataToZoomedRGB(self, data, alpha=1., colormap="gray", interpolation="linear", scale=1.):
         if scale is None:
             scale = 1.
         if colormap in self.colormaps:
             colormap = self.colormaps[colormap]
         cm = cmap.Colormap(colormap, interpolation=interpolation)
 
-        data = gdata.cpu().numpy()
+        # data = gdata.cpu().numpy()
         
         iw = data.shape[1]
         ih = data.shape[0]
@@ -2106,7 +2108,11 @@ class ImageViewer(QLabel):
             y1s = int((y1-ay1)/z)
             x2s = int((x2-ax1)/z)
             y2s = int((y2-ay1)/z)
-            zslc = cv2.resize(data[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_NEAREST)
+            # cdata = data.cpu().numpy()
+            # zslc = cv2.resize(cdata[y1s:y2s,x1s:x2s], (x2-x1, y2-y1), interpolation=cv2.INTER_NEAREST)
+            idata = data[y1s:y2s,x1s:x2s].unsqueeze(0).unsqueeze(0)
+            odata = F.interpolate(idata, size=(y2-y1, x2-x1)).squeeze(0).squeeze(0)
+            zslc = odata.cpu().numpy()
             cslc = cm(np.remainder(zslc, 1.))
             outrgb[y1:y2, x1:x2, :] = (255*cslc[:,:,:3]*alpha).astype(np.uint8)
         return outrgb

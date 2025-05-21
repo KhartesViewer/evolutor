@@ -116,7 +116,7 @@ class ST(object):
     def separable_filter_2d(img, kernelx, kernely):
         # padding = len(kernel_1d) // 2  # Ensure that image size does not change
         img = img.unsqueeze(0).unsqueeze_(0)  # Make copy, make 4D for ``conv2d()``
-        print("img", img.shape, img.dtype, img.device)
+        # print("img", img.shape, img.dtype, img.device)
         # Convolve along columns and rows
         img = F.conv2d(img, weight=kernely.view(1, 1, -1, 1), padding="same")
         img = F.conv2d(img, weight=kernelx.view(1, 1, 1, -1), padding="same")
@@ -125,7 +125,7 @@ class ST(object):
     @staticmethod
     def gaussian_filter_2d(img, sigma):
         kernel_1d = ST.gaussian_kernel_1d(sigma, device=img.device)  # Create 1D Gaussian kernel
-        print("kernel", kernel_1d.shape, kernel_1d.dtype, kernel_1d.device)
+        # print("kernel", kernel_1d.shape, kernel_1d.dtype, kernel_1d.device)
         '''
         padding = len(kernel_1d) // 2  # Ensure that image size does not change
         img = img.unsqueeze(0).unsqueeze_(0)  # Make copy, make 4D for ``conv2d()``
@@ -223,7 +223,7 @@ class ST(object):
         vulen[vulen==0] = 1
         # vu /= vulen[:,:,np.newaxis]
         vu /= vulen.unsqueeze(2)
-        print("vu", vu.shape, vu.dtype)
+        # print("vu", vu.shape, vu.dtype)
         
         # eigenvector v
         # eigenvector v is parallel to the layering,
@@ -267,14 +267,14 @@ class ST(object):
             factor = x/(sigma0*sigma0)
             dkernel[i] *= factor
         dkernel = torch.from_numpy(dkernel).to(img.device)
-        print("dkernel", dkernel.shape, dkernel.device)
+        # print("dkernel", dkernel.shape, dkernel.device)
 
         # gx = self.separable_filter_2d(img.T, gkernel, dkernel).T
         gx = self.separable_filter_2d(img, dkernel, gkernel)
         gy = self.separable_filter_2d(img, gkernel, dkernel)
         # grad = torch.cat((gx, gy)).reshape(2,gx.shape[0],gx.shape[1]).transpose(1,2,0)
         grad = torch.stack((gx, gy), dim=2)
-        print("grad", grad.shape, grad.dtype, grad.device)
+        # print("grad", grad.shape, grad.dtype, grad.device)
 
         sigma1 = 8. # value used by Hale
         # sigma1 = 16.
@@ -290,8 +290,8 @@ class ST(object):
 
         # evals, evecs = self.computeEigensTorch(gx2, gxy, gy2)
         evals, evecs = self.computeEigensExplicit(gx2, gxy, gy2)
-        print("evals", evals.shape, evals.dtype, evals.device)
-        print("evecs", evecs.shape, evecs.dtype, evecs.device)
+        # print("evals", evals.shape, evals.dtype, evals.device)
+        # print("evecs", evecs.shape, evecs.dtype, evecs.device)
 
         lu = evals[:,:,0]
         lv = evals[:,:,1]
