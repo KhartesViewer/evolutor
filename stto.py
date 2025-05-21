@@ -450,7 +450,7 @@ class ST(object):
     # pts array shape is (H',W',2).
     # Output array shape is (H',W') or (H',W',C)
     @ staticmethod
-    def interpolator(array, pts):
+    def interpolator(array, pts, mode='bilinear'):
         # print("interpolator: array", array.shape, array.dtype, array.device)
         # print(array[250,250])
         # print("interpolator: pts", pts.shape, pts.dtype, pts.device)
@@ -472,8 +472,8 @@ class ST(object):
         # print("interpolator: a,p", a.shape, p.shape)
         # print(a[0,:,250,250])
         # print("p", p[0,14,14])
-        # out = F.grid_sample(a, p, align_corners=True) 
-        out = ST.myGridSample(a, p, align_corners=True) 
+        out = F.grid_sample(a, p, align_corners=True, mode=mode) 
+        # out = ST.myGridSample(a, p, align_corners=True) 
         ''''''
 
         '''
