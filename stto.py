@@ -347,6 +347,11 @@ class ST(object):
         values = torch.zeros((pts.shape[0], array.shape[2]), device=pts.device)
         # print(values.shape)
         ipts = torch.floor(pts+.5).to(dtype=torch.int32)
+        # fpts = torch.floor(pts+.5)
+        # cfpts = fpts.cpu()
+        # cipts = cfpts.to(dtype=torch.int32)
+        # ipts = cipts.to(pts.device)
+        # ipts = fpts.to(dtype=torch.int16)
         # print(ipts[0], ipts[-1])
         ashape = array.shape
         # Note how ashape indices are switched here
@@ -360,6 +365,35 @@ class ST(object):
         values[valid] = vvals
 
         return values
+
+    # array.shape = (nh, nw, nc)
+    # pts.shape = (n, 2)
+    # each location in pts is in x,y order
+    @staticmethod
+    def sample2dNearestCpu(garray, gpts):
+        array = garray.cpu()
+        pts = gpts.cpu()
+        values = torch.zeros((pts.shape[0], array.shape[2]), device=pts.device)
+        # print(values.shape)
+        ipts = torch.floor(pts+.5).to(dtype=torch.int32)
+        # fpts = torch.floor(pts+.5)
+        # cfpts = fpts.cpu()
+        # cipts = cfpts.to(dtype=torch.int32)
+        # ipts = cipts.to(pts.device)
+        # ipts = fpts.to(dtype=torch.int16)
+        # print(ipts[0], ipts[-1])
+        ashape = array.shape
+        # Note how ashape indices are switched here
+        validx = torch.logical_and(ipts[:,0]>=0, ipts[:,0]<ashape[1])
+        validy = torch.logical_and(ipts[:,1]>=0, ipts[:,1]<ashape[0])
+        valid = torch.logical_and(validx, validy)
+        vpts = ipts[valid, :]
+        # print(valid.device, vpts.device, values.device)
+        # print(ashape, pts.shape, vpts.shape)
+        vvals = array[vpts[:,1], vpts[:,0]]
+        values[valid] = vvals
+
+        return values.to(garray.device)
 
     # Behavior like F.grid_sample, but assumes 2D only, and
     # only one batch.
@@ -399,7 +433,12 @@ class ST(object):
         # NOTE that ashape coefficients are switched here
         rpts[:,0] = .5*(lpts[:,0]+1.)*ashape[1]
         rpts[:,1] = .5*(lpts[:,1]+1.)*ashape[0]
-        vals = ST.sample2dNearest(array, rpts)
+        # vals = ST.sample2dNearest(array, rpts)
+        # print("array device", str(array.device))
+        if str(array.device) == "xpu:0":
+            vals = ST.sample2dNearestCpu(array, rpts)
+        else:
+            vals = ST.sample2dNearest(array, rpts)
         vals = vals.reshape(1, pshape[0], pshape[1], nc)
         vals = torch.permute(vals, (0, 3, 1, 2))
 
