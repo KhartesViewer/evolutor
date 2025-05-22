@@ -343,7 +343,7 @@ class ST(object):
     # pts.shape = (n, 2)
     # each location in pts is in x,y order
     @staticmethod
-    def sample2dNearest(array, pts):
+    def sample2dNearest(array, pts, device=None):
         values = torch.zeros((pts.shape[0], array.shape[2]), device=pts.device)
         # print(values.shape)
         ipts = torch.floor(pts+.5).to(dtype=torch.int32)
@@ -436,6 +436,7 @@ class ST(object):
         # vals = ST.sample2dNearest(array, rpts)
         # print("array device", str(array.device))
         if str(array.device) == "xpu:0":
+            print( "hey")
             vals = ST.sample2dNearestCpu(array, rpts)
         else:
             vals = ST.sample2dNearest(array, rpts)
@@ -450,7 +451,7 @@ class ST(object):
     # pts array shape is (H',W',2).
     # Output array shape is (H',W') or (H',W',C)
     @ staticmethod
-    def interpolator(array, pts, mode='bilinear'):
+    def interpolator(array, pts, mode='bilinear', device=None):
         # print("interpolator: array", array.shape, array.dtype, array.device)
         # print(array[250,250])
         # print("interpolator: pts", pts.shape, pts.dtype, pts.device)
@@ -472,7 +473,13 @@ class ST(object):
         # print("interpolator: a,p", a.shape, p.shape)
         # print(a[0,:,250,250])
         # print("p", p[0,14,14])
-        out = F.grid_sample(a, p, align_corners=True, mode=mode) 
+        if device is None:
+            out = F.grid_sample(a, p, align_corners=True, mode=mode) 
+        else:
+            da = a.to(device)
+            dp = p.to(device)
+            dout = F.grid_sample(da, dp, align_corners=True, mode=mode) 
+            out = dout.to(a.device)
         # out = ST.myGridSample(a, p, align_corners=True) 
         ''''''
 

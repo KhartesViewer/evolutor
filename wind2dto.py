@@ -1006,7 +1006,8 @@ class ImageViewer(QLabel):
         if inside:
             iix,iiy = int(round(ixy[0])), int(round(ixy[1]))
             imi = self.image[iiy, iix]
-            stxt += "%.2f "%imi
+            # .cpu() to prevent xpu crash
+            stxt += "%.2f "%imi.cpu()
             if self.overlay_data is not None:
                 imi = self.overlay_data[iiy, iix]
                 stxt += "%s=%.2f "%(self.overlay_name, imi)
@@ -1600,9 +1601,11 @@ class ImageViewer(QLabel):
         umb = self.umb
         im = self.image
         # iys, ixs = np.mgrid[:im.shape[0], :im.shape[1]]
-        x0s = torch.arange(im.shape[0], device=self.gpu)
-        x1s = torch.arange(im.shape[1], device=self.gpu)
+        # dtype=float32 to prevent xpu crash
+        x0s = torch.arange(im.shape[0], device=self.gpu, dtype=torch.float32)
+        x1s = torch.arange(im.shape[1], device=self.gpu, dtype=torch.float32)
         iys, ixs = torch.meshgrid((x0s, x1s), indexing='ij')
+        print("ixs", ixs.shape, ixs.dtype, ixs.device)
         # print("mg", ixs.shape, iys.shape)
         # iys gives row ids, ixs gives col ids
         radsq = (ixs-umb[0])*(ixs-umb[0])+(iys-umb[1])*(iys-umb[1])
