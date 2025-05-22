@@ -62,7 +62,7 @@ that are printed out.
 3) Run wind2d.py, using command-line options to specify
 the location of the tif file created by synth2d,py, and
 the coordinates of the umbilicus.  For example:
-    python wind2d.py /mnt/vesuvius/circle.tif --umbiicus 549,463
+    python wind2d.py /mnt/vesuvius/circle.tif --umbilicus 549,463
 
 4) Wait for the wind2d.py window to come up, then press the
 'w' key to compute the undeformed version.  Note that with
@@ -1324,6 +1324,68 @@ class ImageViewer(QLabel):
         sparse_umb = sparse.coo_array((umbzero[:,2], (umbzero[:,0], umbzero[:,1])), shape=(nrf*ncf, nrf*ncf))
         return sparse_umb
 
+    def flatcat(self, arrs):
+        farrs = [torch.flatten(a) for a in arrs]
+        return torch.cat(farrs)
+
+
+    def solveRadius0To(self, basew, smoothing_weight):
+        st = self.main_window.st
+        decimation = self.decimation
+        vecu = st.vector_u
+        coh = st.coherence
+        coh = coh.reshape(coh.shape[0], coh.shape[1], 1)
+        wvecu = coh*vecu
+        if decimation > 1:
+            wvecu = wvecu[::decimation, ::decimation, :]
+            basew = basew.clone()[::decimation, ::decimation]
+        print("wvecu", wvecu.shape, wvecu.dtype, wvecu.device)
+        print("basew", basew.shape, basew.dtype, basew.device)
+        iumb = np.round(self.umb/decimation).astype(np.int64)
+        umbpt = torch.from_numpy(iumb).to(self.gpu)
+
+        # TODO: check whether grad calculations need to be
+        # multiplied by decimation;
+        # set loss to be based on difference of cross products
+        gr00, gr10 = torch.gradient(basew)
+        xprod0 = gr00*wvecu[:,:,1] - gr10*wvecu[:,:,0]
+
+        rad0 = torch.zeros(basew.shape, requires_grad=True, device=self.gpu)
+        optimizer = torch.optim.LBFGS([rad0], lr=0.1)
+
+        def f_torch(r0):
+            gr0, gr1 = torch.gradient(r0)
+            xprod = gr0*wvecu[:,:,1] - gr1*wvecu[:,:,0]
+            # NOTE the reversed indexes
+            umb_val = r0[umbpt[1], umbpt[0]]
+            # print("umb_val", umb_val.shape, umb_val.dtype, umb_val.device)
+            # print(umb_val)
+            # u cross (grad r0') = -u cross (grad r0).
+            # out = torch.cat((xprod.reshape(-1), smoothing_weight*gr0.reshape(-1), smoothing_weight*gr1.reshape(-1), umb_val.reshape(1)))
+            out = self.flatcat((xprod-xprod0, smoothing_weight*gr0, smoothing_weight*gr1, umb_val))
+            # print("out", out.shape, out.dtype, out.device)
+            return out
+
+        def closure():
+            optimizer.zero_grad()
+            y = f_torch(rad0)
+            loss = torch.sum(y**2)
+            loss.backward()
+            return loss
+
+        for i in range(5):
+            loss = optimizer.step(closure)
+            print("Iteration",i+1, "Loss:", loss.item())
+
+        rad0  = rad0.detach()
+        rad0 += basew
+        if decimation > 1:
+            # rad0 = cv2.resize(rad0, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_LINEAR)
+            # idata = [y1s:y2s,x1s:x2s].unsqueeze(0).unsqueeze(0)
+            idata = rad0.unsqueeze(0).unsqueeze(0)
+            rad0 = F.interpolate(idata, size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
+        return rad0
+
     def solveRadius0(self, basew, smoothing_weight):
         st = self.main_window.st
         decimation = self.decimation
@@ -1721,6 +1783,16 @@ class ImageViewer(QLabel):
 
         self.overlay_data = rad
         self.overlay_name = "rad"
+        self.overlay_colormap = "tab20"
+        self.overlay_interpolation = "nearest"
+        self.overlay_maxrad = self.umb_maxrad
+        self.saveCurrentOverlay()
+
+        smoothing_weight = .1
+        rad0 = self.solveRadius0To(rad, smoothing_weight)
+
+        self.overlay_data = rad0
+        self.overlay_name = "rad0"
         self.overlay_colormap = "tab20"
         self.overlay_interpolation = "nearest"
         self.overlay_maxrad = self.umb_maxrad
