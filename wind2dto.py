@@ -1328,6 +1328,13 @@ class ImageViewer(QLabel):
         farrs = [torch.flatten(a) for a in arrs]
         return torch.cat(farrs)
 
+    @staticmethod
+    def gradCross(r, u):
+        gr0 = torch.diff(r, dim=0)
+        gr1 = torch.diff(r, dim=1)
+        xp = (gr0*u[:-1,:,0])[:,:-1] - (gr1*u[:,:-1,1])[:-1,:]
+        return xp, gr0, gr1
+
 
     def solveRadius0To(self, basew, smoothing_weight):
         st = self.main_window.st
@@ -1343,26 +1350,42 @@ class ImageViewer(QLabel):
         print("basew", basew.shape, basew.dtype, basew.device)
         iumb = np.round(self.umb/decimation).astype(np.int64)
         umbpt = torch.from_numpy(iumb).to(self.gpu)
+        umb_val0 = basew[umbpt[1], umbpt[0]]
+        # print(umb_val0)
 
         # TODO: check whether grad calculations need to be
         # multiplied by decimation;
         # set loss to be based on difference of cross products
-        gr00, gr10 = torch.gradient(basew)
-        xprod0 = gr00*wvecu[:,:,1] - gr10*wvecu[:,:,0]
+        # gr00, gr10 = torch.gradient(basew)
+        # gr00 = torch.diff(basew, dim=0)
+        # gr10 = torch.diff(basew, dim=1)
+        # print(gr00.shape, gr10.shape, wvecu.shape)
+        # xprod0 = (gr00*wvecu[:-1,:,0])[:,:-1] - (gr10*wvecu[:,:-1,1])[:-1,:]
+        xprod0, gr00, gr10 = self.gradCross(basew, wvecu)
 
         rad0 = torch.zeros(basew.shape, requires_grad=True, device=self.gpu)
-        optimizer = torch.optim.LBFGS([rad0], lr=0.1)
+        optimizer = torch.optim.LBFGS([rad0], lr=1.0)
+        # 0.8: 301, 22810
+        # 1.2: 250, 22875
+        # optimizer = torch.optim.LBFGS([rad0], lr=1.2)
+        # optimizer = torch.optim.SGD([rad0])
+        # optimizer = torch.optim.Adam([rad0])
+
+        prev_lxp = -1.
 
         def f_torch(r0):
-            gr0, gr1 = torch.gradient(r0)
-            xprod = gr0*wvecu[:,:,1] - gr1*wvecu[:,:,0]
+            # gr0, gr1 = torch.gradient(r0)
+            # gr0 = torch.diff(r0, dim=0)
+            # gr1 = torch.diff(r0, dim=1)
+            # xprod = (gr0*wvecu[:-1,:,0])[:,:-1] - (gr1*wvecu[:,:-1,1])[:-1,:]
+            xprod, gr0, gr1 = self.gradCross(r0, wvecu)
             # NOTE the reversed indexes
             umb_val = r0[umbpt[1], umbpt[0]]
             # print("umb_val", umb_val.shape, umb_val.dtype, umb_val.device)
             # print(umb_val)
             # u cross (grad r0') = -u cross (grad r0).
             # out = torch.cat((xprod.reshape(-1), smoothing_weight*gr0.reshape(-1), smoothing_weight*gr1.reshape(-1), umb_val.reshape(1)))
-            out = self.flatcat((xprod-xprod0, smoothing_weight*gr0, smoothing_weight*gr1, umb_val))
+            out = self.flatcat((xprod+xprod0, smoothing_weight*gr0, smoothing_weight*gr1, umb_val))
             # print("out", out.shape, out.dtype, out.device)
             return out
 
@@ -1373,9 +1396,14 @@ class ImageViewer(QLabel):
             loss.backward()
             return loss
 
-        for i in range(5):
+        for i in range(1000):
             loss = optimizer.step(closure)
-            print("Iteration",i+1, "Loss:", loss.item())
+            xprod, gr0, gr1 = self.gradCross(rad0+basew, wvecu)
+            lxp = (xprod*xprod).sum()
+            print("Iteration",i+1, "Loss:", loss.item(), float(lxp))
+            if prev_lxp > 0 and lxp > prev_lxp:
+                break
+            prev_lxp = lxp
 
         rad0  = rad0.detach()
         rad0 += basew
@@ -1789,6 +1817,7 @@ class ImageViewer(QLabel):
         self.saveCurrentOverlay()
 
         smoothing_weight = .1
+        # smoothing_weight = .2
         rad0 = self.solveRadius0To(rad, smoothing_weight)
 
         self.overlay_data = rad0
