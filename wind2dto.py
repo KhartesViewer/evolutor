@@ -726,6 +726,7 @@ class ImageViewer(QLabel):
         self.safe_gpu = self.gpu
         if str(self.gpu) == "xpu":
             self.safe_gpu = self.cpu
+        print("cpu", self.cpu, "gpu", self.gpu, "safe_gpu", self.safe_gpu)
 
 
     def setOverlayDefaults(self):
