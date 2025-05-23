@@ -41,6 +41,16 @@ from scipy.integrate import solve_ivp
 from skimage.transform import PiecewiseAffineTransform
 import nrrd
 
+import warnings
+import traceback
+
+def custom_formatwarning(msg, *args, **kwargs):
+    return str(msg) + '\n' + ''.join(traceback.format_stack())
+
+warnings.formatwarning = custom_formatwarning
+# warnings.warn("example warning")    
+torch.set_warn_always(True)
+
 '''
 This script takes a 2D scroll slice as input,
 and produces an undeformed version of the slice as output.
@@ -1400,9 +1410,10 @@ class ImageViewer(QLabel):
 
         for i in range(1000):
         # for i in range(50):
+        # for i in range(5):
             loss = optimizer.step(closure)
             xprod, gr0, gr1 = self.gradCross(rad0+basew, wvecu)
-            lxp = (xprod*xprod).sum()
+            lxp = (xprod*xprod).sum().detach()
             print("Iteration",i+1, "Loss:", loss.item(), float(lxp))
             if prev_lxp > 0 and lxp > prev_lxp:
                 break
