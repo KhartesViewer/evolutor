@@ -1372,6 +1372,8 @@ class ImageViewer(QLabel):
         # optimizer = torch.optim.Adam([rad0])
 
         prev_lxp = -1.
+        umb_weight = 1.
+        # umb_weight = 10.
 
         def f_torch(r0):
             # gr0, gr1 = torch.gradient(r0)
@@ -1385,7 +1387,7 @@ class ImageViewer(QLabel):
             # print(umb_val)
             # u cross (grad r0') = -u cross (grad r0).
             # out = torch.cat((xprod.reshape(-1), smoothing_weight*gr0.reshape(-1), smoothing_weight*gr1.reshape(-1), umb_val.reshape(1)))
-            out = self.flatcat((xprod+xprod0, smoothing_weight*gr0, smoothing_weight*gr1, umb_val))
+            out = self.flatcat((xprod+xprod0, smoothing_weight*gr0, smoothing_weight*gr1, umb_weight*umb_val))
             # print("out", out.shape, out.dtype, out.device)
             return out
 
@@ -1397,6 +1399,7 @@ class ImageViewer(QLabel):
             return loss
 
         for i in range(1000):
+        # for i in range(50):
             loss = optimizer.step(closure)
             xprod, gr0, gr1 = self.gradCross(rad0+basew, wvecu)
             lxp = (xprod*xprod).sum()
@@ -1406,13 +1409,22 @@ class ImageViewer(QLabel):
             prev_lxp = lxp
 
         rad0  = rad0.detach()
-        rad0 += basew
+        rad0b = rad0 + basew
+        # rad0 += basew
+        xprod, gr0, gr1 = self.gradCross(rad0+basew, wvecu)
         if decimation > 1:
             # rad0 = cv2.resize(rad0, (vecu.shape[1], vecu.shape[0]), interpolation=cv2.INTER_LINEAR)
             # idata = [y1s:y2s,x1s:x2s].unsqueeze(0).unsqueeze(0)
-            idata = rad0.unsqueeze(0).unsqueeze(0)
-            rad0 = F.interpolate(idata, size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
-        return rad0
+            # idata = rad0.unsqueeze(0).unsqueeze(0)
+            rad0b = F.interpolate(rad0b.unsqueeze(0).unsqueeze(0), size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
+        if decimation > 1:
+            rad0 = F.interpolate(rad0.unsqueeze(0).unsqueeze(0), size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
+            xprod = F.interpolate(xprod.unsqueeze(0).unsqueeze(0), size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
+            gr0 = F.interpolate(gr0.unsqueeze(0).unsqueeze(0), size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
+            gr1 = F.interpolate(gr1.unsqueeze(0).unsqueeze(0), size=(vecu.shape[0], vecu.shape[1])).squeeze(0).squeeze(0)
+
+        # return rad0b
+        return rad0b, rad0, xprod, gr0, gr1
 
     def solveRadius0(self, basew, smoothing_weight):
         st = self.main_window.st
@@ -1818,7 +1830,36 @@ class ImageViewer(QLabel):
 
         smoothing_weight = .1
         # smoothing_weight = .2
-        rad0 = self.solveRadius0To(rad, smoothing_weight)
+        # rad0 = self.solveRadius0To(rad, smoothing_weight)
+        rad0,rad0p,xgr,gr0,gr1 = self.solveRadius0To(rad, smoothing_weight)
+
+        self.overlay_data = rad0p
+        self.overlay_name = "rad0p"
+        self.overlay_colormap = "hsv"
+        self.overlay_interpolation = "linear"
+        self.overlay_maxrad = 1000.
+        self.saveCurrentOverlay()
+
+        self.overlay_data = xgr
+        self.overlay_name = "xgr"
+        self.overlay_colormap = "hsv"
+        self.overlay_interpolation = "linear"
+        self.overlay_maxrad = 5.
+        self.saveCurrentOverlay()
+
+        self.overlay_data = gr0
+        self.overlay_name = "gr0"
+        self.overlay_colormap = "hsv"
+        self.overlay_interpolation = "linear"
+        self.overlay_maxrad = 50.
+        self.saveCurrentOverlay()
+
+        self.overlay_data = gr1
+        self.overlay_name = "gr1"
+        self.overlay_colormap = "hsv"
+        self.overlay_interpolation = "linear"
+        self.overlay_maxrad = 50.
+        self.saveCurrentOverlay()
 
         self.overlay_data = rad0
         self.overlay_name = "rad0"
