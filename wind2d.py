@@ -60,7 +60,7 @@ that are printed out.
 3) Run wind2d.py, using command-line options to specify
 the location of the tif file created by synth2d,py, and
 the coordinates of the umbilicus.  For example:
-    python wind2d.py /mnt/vesuvius/circle.tif --umbiicus 549,463
+    python wind2d.py /mnt/vesuvius/circle.tif --umbilicus 549,463
 
 4) Wait for the wind2d.py window to come up, then press the
 'w' key to compute the undeformed version.  Note that with
